@@ -75,39 +75,89 @@ type MusicLayer = {
   unlockLevel: number;
   baseGain: number;
   gain: GainNode;
-  trigger: (step: number, time: number, dest: AudioNode, stepDur: number) => boolean;
+  trigger: (
+    step: number,
+    bar: number,
+    time: number,
+    dest: AudioNode,
+    stepDur: number,
+  ) => boolean;
   lastFireAudioTime: number;
 };
 
 const STEPS_PER_BAR = 16;
+const BARS_PER_LOOP = 4;
 const SCHED_INTERVAL_MS = 25;
 const SCHED_LOOKAHEAD_S = 0.12;
 
-// A natural minor patterns. `null` = rest.
-const BASS: (number | null)[] = [
-  110, null, null, null, 110, null, null, null,
-  82.41, null, null, null, 98, null, 110, null,
+// 4-bar progression in A natural minor / C major: Am - F - C - G.
+// Each pattern is indexed [bar][step]; `null` = rest.
+const BASS: (number | null)[][] = [
+  // Am: A2, low E2, walk via G2
+  [110, null, null, null, 110, null, null, null,
+   82.41, null, null, null, 98, null, 110, null],
+  // F: F2, low C2, walk via E2
+  [87.31, null, null, null, 87.31, null, null, null,
+   65.41, null, null, null, 82.41, null, 87.31, null],
+  // C: C3, low G2, walk via A2
+  [130.81, null, null, null, 130.81, null, null, null,
+   98, null, null, null, 110, null, 130.81, null],
+  // G: G2, low D2, walk via F2
+  [98, null, null, null, 98, null, null, null,
+   73.42, null, null, null, 87.31, null, 98, null],
 ];
-const LEAD: (number | null)[] = [
-  440, null, 523.25, null, 659.25, null, 587.33, null,
-  523.25, null, 493.88, null, 440, null, 329.63, null,
+const LEAD: (number | null)[][] = [
+  // Am: A C E D | C B A E
+  [440, null, 523.25, null, 659.25, null, 587.33, null,
+   523.25, null, 493.88, null, 440, null, 329.63, null],
+  // F: F A C B | A G F C
+  [349.23, null, 440, null, 523.25, null, 493.88, null,
+   440, null, 392, null, 349.23, null, 261.63, null],
+  // C: C E G F | E D C G  (octave up — peak of the progression)
+  [523.25, null, 659.25, null, 783.99, null, 698.46, null,
+   659.25, null, 587.33, null, 523.25, null, 392, null],
+  // G: G B D C | B A G D
+  [392, null, 493.88, null, 587.33, null, 523.25, null,
+   493.88, null, 440, null, 392, null, 293.66, null],
 ];
-const HARMONY: (number | null)[] = [
-  // a third above the lead
-  523.25, null, 659.25, null, 783.99, null, 698.46, null,
-  659.25, null, 587.33, null, 523.25, null, 392, null,
+const HARMONY: (number | null)[][] = [
+  // each line is a diatonic third above the corresponding LEAD bar
+  [523.25, null, 659.25, null, 783.99, null, 698.46, null,
+   659.25, null, 587.33, null, 523.25, null, 392, null],
+  [440, null, 523.25, null, 659.25, null, 587.33, null,
+   523.25, null, 493.88, null, 440, null, 329.63, null],
+  [659.25, null, 783.99, null, 987.77, null, 880, null,
+   783.99, null, 698.46, null, 659.25, null, 493.88, null],
+  [493.88, null, 587.33, null, 698.46, null, 659.25, null,
+   587.33, null, 523.25, null, 493.88, null, 349.23, null],
 ];
-const ARP: number[] = [
-  440, 523.25, 659.25, 523.25, 440, 523.25, 659.25, 523.25,
-  392, 493.88, 587.33, 493.88, 440, 523.25, 659.25, 523.25,
+const ARP: number[][] = [
+  // Am: A C E C, last note jumps an octave for sparkle
+  [440, 523.25, 659.25, 523.25, 440, 523.25, 659.25, 523.25,
+   440, 523.25, 659.25, 523.25, 440, 523.25, 659.25, 880],
+  // F: F A C A
+  [349.23, 440, 523.25, 440, 349.23, 440, 523.25, 440,
+   349.23, 440, 523.25, 440, 349.23, 440, 523.25, 698.46],
+  // C: C E G E
+  [523.25, 659.25, 783.99, 659.25, 523.25, 659.25, 783.99, 659.25,
+   523.25, 659.25, 783.99, 659.25, 523.25, 659.25, 783.99, 1046.5],
+  // G: G B D B
+  [392, 493.88, 587.33, 493.88, 392, 493.88, 587.33, 493.88,
+   392, 493.88, 587.33, 493.88, 392, 493.88, 587.33, 783.99],
 ];
-const CHORD = [220, 261.63, 329.63]; // A3 C4 E4
+const CHORDS: number[][] = [
+  [220, 261.63, 329.63], // Am: A3 C4 E4
+  [174.61, 220, 261.63], // F:  F3 A3 C4
+  [261.63, 329.63, 392], // C:  C4 E4 G4
+  [196, 246.94, 293.66], // G:  G3 B3 D4
+];
 
 let musicMaster: GainNode | null = null;
 let layers: MusicLayer[] = [];
 let musicLevel = 0;
 let musicActive = true;
 let stepIndex = 0;
+let barIndex = 0;
 let nextStepTime = 0;
 let schedulerTimer: number | null = null;
 
@@ -231,7 +281,7 @@ function makeLayer(
 function buildLayers(ac: AudioContext, master: GainNode): MusicLayer[] {
   return [
     // L1 — heartbeat: lone low pulse on beats 1 and 3
-    makeLayer(ac, master, 1, 0.22, (step, time, dest) => {
+    makeLayer(ac, master, 1, 0.22, (step, _bar, time, dest) => {
       if (step === 0) {
         playOsc(ac, dest, 110, time, 0.42, 'square', 0.55);
         return true;
@@ -243,69 +293,76 @@ function buildLayers(ac: AudioContext, master: GainNode): MusicLayer[] {
       return false;
     }),
 
-    // L2 — bassline
-    makeLayer(ac, master, 2, 0.28, (step, time, dest) => {
-      const f = BASS[step];
+    // L2 — bassline (follows the chord progression)
+    makeLayer(ac, master, 2, 0.28, (step, bar, time, dest) => {
+      const f = BASS[bar][step];
       if (!f) return false;
       playOsc(ac, dest, f, time, 0.17, 'square', 0.55, 0.003);
       return true;
     }),
 
     // L3 — kick: 4-on-the-floor
-    makeLayer(ac, master, 3, 0.55, (step, time, dest) => {
+    makeLayer(ac, master, 3, 0.55, (step, _bar, time, dest) => {
       if (step % 4 !== 0) return false;
       playKick(ac, dest, time);
       return true;
     }),
 
-    // L4 — lead melody (triangle)
-    makeLayer(ac, master, 4, 0.18, (step, time, dest) => {
-      const f = LEAD[step];
+    // L4 — lead melody (triangle), transposed per chord
+    makeLayer(ac, master, 4, 0.18, (step, bar, time, dest) => {
+      const f = LEAD[bar][step];
       if (!f) return false;
       playOsc(ac, dest, f, time, 0.18, 'triangle', 0.65, 0.005);
       return true;
     }),
 
     // L5 — hi-hat: 8th notes
-    makeLayer(ac, master, 5, 0.18, (step, time, dest) => {
+    makeLayer(ac, master, 5, 0.18, (step, _bar, time, dest) => {
       if (step % 2 !== 0) return false;
       playHat(ac, dest, time, false);
       return true;
     }),
 
-    // L6 — arpeggio counter, fills the lead's rests
-    makeLayer(ac, master, 6, 0.13, (step, time, dest) => {
+    // L6 — arpeggio counter, fills the lead's rests with chord tones
+    makeLayer(ac, master, 6, 0.13, (step, bar, time, dest) => {
       if (step % 2 !== 1) return false;
-      playOsc(ac, dest, ARP[step], time, 0.08, 'square', 0.45, 0.002);
+      playOsc(ac, dest, ARP[bar][step], time, 0.08, 'square', 0.45, 0.002);
       return true;
     }),
 
-    // L7 — snare on beats 2 and 4
-    makeLayer(ac, master, 7, 0.32, (step, time, dest) => {
-      if (step !== 4 && step !== 12) return false;
-      playSnare(ac, dest, time);
-      return true;
+    // L7 — snare on beats 2 and 4, plus a fill on the last bar of the loop
+    makeLayer(ac, master, 7, 0.32, (step, bar, time, dest) => {
+      if (step === 4 || step === 12) {
+        playSnare(ac, dest, time);
+        return true;
+      }
+      // Telegraph the loop reset with two extra hits at the end of bar 3.
+      if (bar === BARS_PER_LOOP - 1 && (step === 14 || step === 15)) {
+        playSnare(ac, dest, time);
+        return true;
+      }
+      return false;
     }),
 
-    // L8 — chord pad: sustained A-minor triad, refreshed each bar
-    makeLayer(ac, master, 8, 0.1, (step, time, dest, stepDur) => {
+    // L8 — chord pad: refreshed each bar with the current progression chord
+    makeLayer(ac, master, 8, 0.1, (step, bar, time, dest, stepDur) => {
       if (step !== 0) return false;
       const dur = stepDur * STEPS_PER_BAR;
-      for (const f of CHORD) playPad(ac, dest, f, time, dur);
+      for (const f of CHORDS[bar]) playPad(ac, dest, f, time, dur);
       return true;
     }),
 
     // L9 — harmony layer doubling the lead a third above
-    makeLayer(ac, master, 9, 0.12, (step, time, dest) => {
-      const f = HARMONY[step];
+    makeLayer(ac, master, 9, 0.12, (step, bar, time, dest) => {
+      const f = HARMONY[bar][step];
       if (!f) return false;
       playOsc(ac, dest, f, time, 0.18, 'triangle', 0.5, 0.005);
       return true;
     }),
 
     // L10 — flourish: octave-up arp and an open hat on the and-of-4
-    makeLayer(ac, master, 10, 0.2, (step, time, dest) => {
-      playOsc(ac, dest, ARP[step] * 2, time, 0.05, 'triangle', 0.22, 0.002);
+    makeLayer(ac, master, 10, 0.2, (step, bar, time, dest) => {
+      playOsc(ac, dest, ARP[bar][step] * 2, time, 0.05, 'triangle', 0.22, 0.002);
       if (step === 14) playHat(ac, dest, time, true);
       return true;
     }),
@@ -324,6 +381,7 @@ function ensureMusic(): void {
   }
   nextStepTime = ac.currentTime + 0.1;
   stepIndex = 0;
+  barIndex = 0;
   if (schedulerTimer === null) {
     schedulerTimer = window.setInterval(scheduleAhead, SCHED_INTERVAL_MS);
   }
@@ -343,12 +401,16 @@ function scheduleAhead(): void {
   while (nextStepTime < horizon) {
     for (const layer of layers) {
       if (musicLevel >= layer.unlockLevel) {
-        const fired = layer.trigger(stepIndex, nextStepTime, layer.gain, stepDur);
+        const fired = layer.trigger(stepIndex, barIndex, nextStepTime, layer.gain, stepDur);
         if (fired && musicActive) layer.lastFireAudioTime = nextStepTime;
       }
     }
     nextStepTime += stepDur;
-    stepIndex = (stepIndex + 1) % STEPS_PER_BAR;
+    stepIndex++;
+    if (stepIndex >= STEPS_PER_BAR) {
+      stepIndex = 0;
+      barIndex = (barIndex + 1) % BARS_PER_LOOP;
+    }
   }
 }
 
