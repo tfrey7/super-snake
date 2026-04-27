@@ -15,3 +15,11 @@ These three are the same beat. They should never drift apart — when one escala
 ## How to apply this
 
 When evaluating any feature, mechanic, or polish work, ask: **does this support the slow→fast crescendo?** If a change would flatten the ramp, decouple speed/camera/music, or make the early game feel as busy as the late game, it's working against the core directive.
+
+## Progressive reveal
+
+Visual flourishes also live on the ramp. The interface itself "levels up" alongside speed, camera, and music — early levels are deliberately bare so later ones have room to grow. New effects (borders, shimmer, fireworks, banner flourishes, etc.) should be gated by level so they appear and stack as the game progresses, rather than all being live from the start.
+
+Why staggered: a bare baseline makes each addition feel like an event. If every effect is live at level 1, there's no room for the game to grow into — and no contrast to make the late game feel like a different place.
+
+When adding a new visual effect, pick a level for it to enter at. Don't enumerate the full stack here — that map lives in code and would drift out of sync if duplicated.
