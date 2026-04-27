@@ -1,15 +1,18 @@
 import {
+  DIR_E,
   INITIAL_LENGTH,
   TRANSITION_MS,
   colsForLevel,
   levelForScore,
+  neighborOf,
+  oppositeDir,
   type Cell,
   type Dir,
   type GameState,
 } from './types';
 
-// Tutorial apples sit in the snake's lane so it auto-eats them in sequence; the
-// final eat triggers the level-up that reveals the gimmick.
+// Tutorial apples sit in the snake's lane (a single eastward row) so it
+// auto-eats them in sequence; the final eat triggers the level-up.
 const TUTORIAL_APPLE_X = [5, 7, 9];
 
 export function createInitialState(): GameState {
@@ -20,11 +23,10 @@ export function createInitialState(): GameState {
   for (let i = 0; i < INITIAL_LENGTH; i++) {
     snake.push({ x: 2 - i, y: midY });
   }
-  const dir: Dir = { x: 1, y: 0 };
   const state: GameState = {
     snake,
-    dir,
-    nextDir: { ...dir },
+    dir: DIR_E,
+    nextDir: DIR_E,
     food: { x: 0, y: 0 },
     score: 0,
     dead: false,
@@ -36,8 +38,7 @@ export function createInitialState(): GameState {
 }
 
 export function setNextDir(state: GameState, dir: Dir): void {
-  if (dir.x === -state.dir.x && dir.y === -state.dir.y) return;
-  if (dir.x === 0 && dir.y === 0) return;
+  if (dir === oppositeDir(state.dir)) return;
   state.nextDir = dir;
 }
 
@@ -47,7 +48,7 @@ export function step(state: GameState): void {
   const cols = colsForLevel(state.level);
   const rows = cols;
   const head = state.snake[0];
-  const next: Cell = { x: head.x + state.dir.x, y: head.y + state.dir.y };
+  const next = neighborOf(head, state.dir);
 
   if (next.x < 0 || next.x >= cols || next.y < 0 || next.y >= rows) {
     state.dead = true;
@@ -84,34 +85,9 @@ function advanceLevelIfNeeded(state: GameState): void {
   if (target === state.level) return;
   const fromLevel = state.level;
   state.level = target;
-  const newCols = colsForLevel(target);
-  const newCenter = Math.floor(newCols / 2);
-  const head = state.snake[0];
-  let dx = Math.max(-1, Math.min(1, newCenter - head.x));
-  let dy = Math.max(-1, Math.min(1, newCenter - head.y));
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  for (const seg of state.snake) {
-    if (seg.x < minX) minX = seg.x;
-    if (seg.x > maxX) maxX = seg.x;
-    if (seg.y < minY) minY = seg.y;
-    if (seg.y > maxY) maxY = seg.y;
-  }
-  if (minX + dx < 0) dx = -minX;
-  else if (maxX + dx > newCols - 1) dx = newCols - 1 - maxX;
-  if (minY + dy < 0) dy = -minY;
-  else if (maxY + dy > newCols - 1) dy = newCols - 1 - maxY;
-  for (const seg of state.snake) {
-    seg.x += dx;
-    seg.y += dy;
-  }
   state.transition = {
     fromLevel,
     toLevel: target,
-    dx,
-    dy,
     elapsedMs: 0,
     durationMs: TRANSITION_MS,
   };

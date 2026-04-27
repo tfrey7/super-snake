@@ -33,22 +33,18 @@ import {
 import { drawTitle } from './title';
 import {
   BOARD_PX,
-  cellPx,
+  DIR_E,
+  DIR_NE,
+  DIR_NW,
+  DIR_SE,
+  DIR_SW,
+  DIR_W,
+  hexCenter,
+  hexLayout,
   tickMsForLevel,
   type Dir,
   type GameState,
 } from './types';
-
-const KEY_DIRS: Record<string, Dir> = {
-  ArrowUp: { x: 0, y: -1 },
-  ArrowDown: { x: 0, y: 1 },
-  ArrowLeft: { x: -1, y: 0 },
-  ArrowRight: { x: 1, y: 0 },
-  KeyW: { x: 0, y: -1 },
-  KeyS: { x: 0, y: 1 },
-  KeyA: { x: -1, y: 0 },
-  KeyD: { x: 1, y: 0 },
-};
 
 const TITLE_FADE_MS = 700;
 const DEATH_PAUSE_MS = 1400;
@@ -79,10 +75,9 @@ let levelUpLevel = 0;
 
 let state: GameState = createInitialState();
 
-function startGame(initialDir: Dir | null, now: number): void {
+function startGame(now: number): void {
   unlockAudio();
   state = createInitialState();
-  if (initialDir) setNextDir(state, initialDir);
   clearParticles();
   setMusicLevel(state.level);
   setMusicActive(true);
@@ -110,12 +105,29 @@ function cycleLetter(ch: string, delta: number): string {
   return String.fromCharCode(A + idx);
 }
 
-window.addEventListener('keydown', (e) => {
-  const dir = KEY_DIRS[e.code] ?? null;
+// Pointy-top hex direction angles in canvas coords (y-down):
+//   E=0°, SE=60°, SW=120°, W=180°, NW=240°, NE=300°.
+// Bucket boundaries sit at 30° + 60°·k, so a swipe at angle θ maps to bucket
+// floor((θ + 30) / 60) mod 6, and bucket → Dir uses this lookup.
+const SWIPE_BUCKET_TO_DIR: Dir[] = [
+  DIR_E,
+  DIR_SE,
+  DIR_SW,
+  DIR_W,
+  DIR_NW,
+  DIR_NE,
+];
 
+function swipeToHexDir(dx: number, dy: number): Dir {
+  const deg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const norm = (deg + 360) % 360;
+  const bucket = Math.floor((norm + 30) / 60) % 6;
+  return SWIPE_BUCKET_TO_DIR[bucket];
+}
+
+window.addEventListener('keydown', (e) => {
   if (phase === 'title') {
-    // Any key begins the game; movement keys also seed the starting direction.
-    startGame(dir, performance.now());
+    startGame(performance.now());
     e.preventDefault();
     return;
   }
@@ -168,14 +180,9 @@ window.addEventListener('keydown', (e) => {
   if (phase === 'leaderboard') {
     if (e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter') {
       unlockAudio();
-      startGame(null, performance.now());
+      startGame(performance.now());
       e.preventDefault();
     }
-    return;
-  }
-
-  if (phase === 'death-pause') {
-    // Ignore input until the pause resolves.
     return;
   }
 
@@ -196,63 +203,55 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
-
-  if (dir) {
-    unlockAudio();
-    setNextDir(state, dir);
-    e.preventDefault();
-    return;
-  }
 });
 
 const SWIPE_THRESHOLD_PX = 20;
-let touchPointerId: number | null = null;
-let touchAnchorX = 0;
-let touchAnchorY = 0;
-let touchSwipedThisGesture = false;
+let dragPointerId: number | null = null;
+let dragAnchorX = 0;
+let dragAnchorY = 0;
+let dragSwipedThisGesture = false;
 
-function applySwipe(dir: Dir): void {
+function handleSwipe(dx: number, dy: number): void {
   unlockAudio();
 
   if (phase === 'title') {
-    startGame(dir, performance.now());
+    startGame(performance.now());
     return;
   }
 
   if (phase === 'enter-initials' && editState) {
-    if (dir.y === -1) {
+    // Initials use 4-direction quantization regardless of pointy-top angles.
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+    if (adx > ady) {
+      editState.cursor =
+        dx > 0
+          ? Math.min(2, editState.cursor + 1)
+          : Math.max(0, editState.cursor - 1);
+    } else {
       editState.initials[editState.cursor] = cycleLetter(
         editState.initials[editState.cursor],
-        1,
+        dy < 0 ? 1 : -1,
       );
-    } else if (dir.y === 1) {
-      editState.initials[editState.cursor] = cycleLetter(
-        editState.initials[editState.cursor],
-        -1,
-      );
-    } else if (dir.x === -1) {
-      editState.cursor = Math.max(0, editState.cursor - 1);
-    } else if (dir.x === 1) {
-      editState.cursor = Math.min(2, editState.cursor + 1);
     }
     return;
   }
 
   if (phase === 'leaderboard') {
-    startGame(null, performance.now());
+    startGame(performance.now());
     return;
   }
 
   if (phase === 'death-pause') return;
 
-  setNextDir(state, dir);
+  setNextDir(state, swipeToHexDir(dx, dy));
 }
 
 function applyTap(): void {
   unlockAudio();
 
   if (phase === 'title') {
-    startGame(null, performance.now());
+    startGame(performance.now());
     return;
   }
 
@@ -262,53 +261,48 @@ function applyTap(): void {
   }
 
   if (phase === 'leaderboard') {
-    startGame(null, performance.now());
+    startGame(performance.now());
     return;
   }
 }
 
 canvas.addEventListener('pointerdown', (e) => {
-  if (e.pointerType !== 'touch') return;
-  if (touchPointerId !== null) return;
-  touchPointerId = e.pointerId;
-  touchAnchorX = e.clientX;
-  touchAnchorY = e.clientY;
-  touchSwipedThisGesture = false;
+  if (dragPointerId !== null) return;
+  dragPointerId = e.pointerId;
+  dragAnchorX = e.clientX;
+  dragAnchorY = e.clientY;
+  dragSwipedThisGesture = false;
   canvas.setPointerCapture(e.pointerId);
   e.preventDefault();
 });
 
 canvas.addEventListener('pointermove', (e) => {
-  if (e.pointerType !== 'touch' || e.pointerId !== touchPointerId) return;
-  const dx = e.clientX - touchAnchorX;
-  const dy = e.clientY - touchAnchorY;
-  const adx = Math.abs(dx);
-  const ady = Math.abs(dy);
-  if (adx < SWIPE_THRESHOLD_PX && ady < SWIPE_THRESHOLD_PX) return;
-  const dir: Dir =
-    adx > ady
-      ? { x: dx > 0 ? 1 : -1, y: 0 }
-      : { x: 0, y: dy > 0 ? 1 : -1 };
-  applySwipe(dir);
-  touchSwipedThisGesture = true;
-  touchAnchorX = e.clientX;
-  touchAnchorY = e.clientY;
+  if (e.pointerId !== dragPointerId) return;
+  const dx = e.clientX - dragAnchorX;
+  const dy = e.clientY - dragAnchorY;
+  if (Math.abs(dx) < SWIPE_THRESHOLD_PX && Math.abs(dy) < SWIPE_THRESHOLD_PX) {
+    return;
+  }
+  handleSwipe(dx, dy);
+  dragSwipedThisGesture = true;
+  dragAnchorX = e.clientX;
+  dragAnchorY = e.clientY;
   e.preventDefault();
 });
 
-function endTouchGesture(e: PointerEvent, fireTap: boolean): void {
-  if (e.pointerType !== 'touch' || e.pointerId !== touchPointerId) return;
-  if (fireTap && !touchSwipedThisGesture) applyTap();
-  touchPointerId = null;
-  touchSwipedThisGesture = false;
+function endDragGesture(e: PointerEvent, fireTap: boolean): void {
+  if (e.pointerId !== dragPointerId) return;
+  if (fireTap && !dragSwipedThisGesture) applyTap();
+  dragPointerId = null;
+  dragSwipedThisGesture = false;
   if (canvas.hasPointerCapture(e.pointerId)) {
     canvas.releasePointerCapture(e.pointerId);
   }
   e.preventDefault();
 }
 
-canvas.addEventListener('pointerup', (e) => endTouchGesture(e, true));
-canvas.addEventListener('pointercancel', (e) => endTouchGesture(e, false));
+canvas.addEventListener('pointerup', (e) => endDragGesture(e, true));
+canvas.addEventListener('pointercancel', (e) => endDragGesture(e, false));
 
 let lastTime = performance.now();
 let acc = 0;
@@ -338,7 +332,7 @@ function frame(now: number): void {
       const prevScore = state.score;
       const prevDead = state.dead;
       const prevLevel = state.level;
-      const prevCell = cellPx(state.level);
+      const prevLayout = hexLayout(state.level);
       const foodX = state.food.x;
       const foodY = state.food.y;
       step(state);
@@ -351,11 +345,12 @@ function frame(now: number): void {
       } else if (state.score > prevScore) {
         playEat();
         if (prevLevel >= 3) {
+          const { px, py } = hexCenter(foodX, foodY, prevLayout);
           spawnFireworks(
-            foodX * prevCell + prevCell / 2,
-            foodY * prevCell + prevCell / 2,
+            px,
+            py,
             levelFireworkColors(prevLevel),
-            prevCell / 24,
+            prevLayout.width / 24,
           );
         }
       }

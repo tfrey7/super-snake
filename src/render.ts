@@ -4,11 +4,14 @@ import {
   BOARD_PX,
   LEVELS,
   applesToAdvanceFrom,
-  cellPx,
   colsForLevel,
+  hexCenter,
+  hexLayoutFor,
+  hexSizeFor,
   scoreToReachLevel,
   tickMsForLevel,
   type GameState,
+  type HexLayout,
 } from './types';
 
 const SNAKE_BODY = '#5eead4';
@@ -53,34 +56,28 @@ export function draw(
   const w = BOARD_PX;
   const h = BOARD_PX;
 
-  let cell: number;
-  let originX: number;
-  let originY: number;
+  let layout: HexLayout;
   let cols: number;
   let bgRgb: Rgb;
   let gridRgb: Rgb;
   let accentRgb: Rgb;
 
   if (state.transition) {
-    const { fromLevel, toLevel, dx, dy, elapsedMs, durationMs } =
-      state.transition;
+    const { fromLevel, toLevel, elapsedMs, durationMs } = state.transition;
     const t = easeOutCubic(Math.min(elapsedMs / durationMs, 1));
-    const oldCell = BOARD_PX / colsForLevel(fromLevel);
-    const newCell = BOARD_PX / colsForLevel(toLevel);
-    cell = lerp(oldCell, newCell, t);
-    originX = lerp(-dx * oldCell, 0, t);
-    originY = lerp(-dy * oldCell, 0, t);
-    cols = colsForLevel(toLevel);
+    const fromCols = colsForLevel(fromLevel);
+    const toCols = colsForLevel(toLevel);
+    cols = toCols;
+    const size = lerp(hexSizeFor(fromCols), hexSizeFor(toCols), t);
+    layout = hexLayoutFor(size, toCols);
     const fromPal = LEVEL_PALETTE[fromLevel];
     const toPal = LEVEL_PALETTE[toLevel];
     bgRgb = lerpRgb(fromPal.bg, toPal.bg, t);
     gridRgb = lerpRgb(fromPal.grid, toPal.grid, t);
     accentRgb = lerpRgb(fromPal.accent, toPal.accent, t);
   } else {
-    cell = cellPx(state.level);
-    originX = 0;
-    originY = 0;
     cols = colsForLevel(state.level);
+    layout = hexLayoutFor(hexSizeFor(cols), cols);
     const pal = LEVEL_PALETTE[state.level];
     bgRgb = pal.bg;
     gridRgb = pal.grid;
@@ -109,22 +106,18 @@ export function draw(
     return 0.5 * (1 + Math.cos((Math.PI * d) / SHIMMER_BAND_CELLS));
   };
 
+  // Hex grid outlines, batched into one path. Interior edges are stroked twice
+  // (once per neighboring hex), but it's cheap and the second stroke is identical.
   ctx.strokeStyle = rgbStr(gridRgb);
   ctx.lineWidth = 1;
-  for (let x = 0; x <= cols; x++) {
-    const px = originX + x * cell + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(px, 0);
-    ctx.lineTo(px, h);
-    ctx.stroke();
+  ctx.beginPath();
+  for (let y = 0; y < cols; y++) {
+    for (let x = 0; x < cols; x++) {
+      const c = hexCenter(x, y, layout);
+      addHexPath(ctx, c.px, c.py, layout.size);
+    }
   }
-  for (let y = 0; y <= cols; y++) {
-    const py = originY + y * cell + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(0, py);
-    ctx.lineTo(w, py);
-    ctx.stroke();
-  }
+  ctx.stroke();
 
   if (sweepActive) {
     const occupied = new Set<number>();
@@ -141,19 +134,22 @@ export function draw(
         const factor = shimmerAt(x, y);
         if (factor <= 0) continue;
         ctx.fillStyle = shiftRgb(bgRgb, factor * SHIMMER_BG_AMP);
-        fillCellAt(ctx, x, y, cell, originX, originY);
+        fillHex(ctx, x, y, layout);
       }
     }
   }
 
-  ctx.fillStyle = shiftRgb(FOOD_RGB, shimmerAt(state.food.x, state.food.y) * SHIMMER_AMP);
-  fillCellAt(ctx, state.food.x, state.food.y, cell, originX, originY);
+  ctx.fillStyle = shiftRgb(
+    FOOD_RGB,
+    shimmerAt(state.food.x, state.food.y) * SHIMMER_AMP,
+  );
+  fillHex(ctx, state.food.x, state.food.y, layout);
 
   for (let i = 0; i < state.snake.length; i++) {
     const seg = state.snake[i];
     const base = i === 0 ? SNAKE_HEAD_RGB : SNAKE_BODY_RGB;
     ctx.fillStyle = shiftRgb(base, shimmerAt(seg.x, seg.y) * SHIMMER_AMP);
-    fillCellAt(ctx, seg.x, seg.y, cell, originX, originY);
+    fillHex(ctx, seg.x, seg.y, layout);
   }
 
   ctx.fillStyle = rgbStr(accentRgb);
@@ -410,15 +406,35 @@ function easeOutBack(t: number): number {
   return 1 + c3 * u * u * u + c1 * u * u;
 }
 
-function fillCellAt(
+// Pointy-top hex with vertices at canvas angles -90°, -30°, 30°, 90°, 150°, 210°.
+// Adds the polygon to the current path; caller decides whether to fill or stroke.
+function addHexPath(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+): void {
+  for (let i = 0; i < 6; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 3;
+    const x = cx + r * Math.cos(a);
+    const y = cy + r * Math.sin(a);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+function fillHex(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  cell: number,
-  originX: number,
-  originY: number,
+  layout: HexLayout,
+  inset = 1,
 ): void {
-  ctx.fillRect(originX + x * cell + 1, originY + y * cell + 1, cell - 2, cell - 2);
+  const { px, py } = hexCenter(x, y, layout);
+  ctx.beginPath();
+  addHexPath(ctx, px, py, layout.size - inset);
+  ctx.fill();
 }
 
 function lerp(a: number, b: number, t: number): number {
