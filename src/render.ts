@@ -281,8 +281,13 @@ export function drawLevelUpOverlay(
   const w = BOARD_PX;
   const h = BOARD_PX;
 
+  const showFlash = level >= 3;
+  const showGlow = level >= 2;
+  const showWobble = level >= 2;
+  const baseScale = level >= 3 ? 1 : level === 2 ? 0.85 : 0.7;
+
   // Soft full-screen flash that quickly decays.
-  if (elapsed < LEVEL_UP_FLASH_MS) {
+  if (showFlash && elapsed < LEVEL_UP_FLASH_MS) {
     const f = 1 - elapsed / LEVEL_UP_FLASH_MS;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -306,6 +311,7 @@ export function drawLevelUpOverlay(
     alpha = 1 - t;
     scale = 1 + 0.15 * t;
   }
+  scale *= baseScale;
 
   const text = `LEVEL ${level + 1}`;
   const px = BANNER_PIXEL;
@@ -313,7 +319,7 @@ export function drawLevelUpOverlay(
   const th = 7 * px;
   const cx = w / 2;
   const cy = h / 2;
-  const wobble = Math.sin(elapsed * 0.012) * 1.5;
+  const wobble = showWobble ? Math.sin(elapsed * 0.012) * 1.5 : 0;
 
   ctx.save();
   ctx.translate(cx, cy + wobble);
@@ -321,15 +327,17 @@ export function drawLevelUpOverlay(
   ctx.translate(-tw / 2, -th / 2);
 
   // Soft glow halos.
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  for (const blur of [22, 12, 5]) {
-    ctx.shadowColor = `rgba(${BANNER_GLOW}, 1)`;
-    ctx.shadowBlur = blur;
-    ctx.fillStyle = `rgba(${BANNER_GLOW}, ${0.18 * alpha})`;
-    drawText(ctx, text, 0, 0, px);
+  if (showGlow) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const blur of [22, 12, 5]) {
+      ctx.shadowColor = `rgba(${BANNER_GLOW}, 1)`;
+      ctx.shadowBlur = blur;
+      ctx.fillStyle = `rgba(${BANNER_GLOW}, ${0.18 * alpha})`;
+      drawText(ctx, text, 0, 0, px);
+    }
+    ctx.restore();
   }
-  ctx.restore();
 
   // Sharp core.
   ctx.fillStyle = `rgba(${BANNER_COLOR}, ${alpha})`;

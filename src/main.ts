@@ -327,15 +327,17 @@ function frame(now: number): void {
         deathPauseUntil = now + DEATH_PAUSE_MS;
       } else if (state.score > prevScore) {
         playEat();
-        spawnFireworks(
-          foodX * prevCell + prevCell / 2,
-          foodY * prevCell + prevCell / 2,
-          prevCell / 24,
-        );
+        if (prevLevel >= 2) {
+          spawnFireworks(
+            foodX * prevCell + prevCell / 2,
+            foodY * prevCell + prevCell / 2,
+            prevCell / 24,
+          );
+        }
       }
       if (state.level > prevLevel) {
         playLevelUp();
-        spawnLevelUpFireworks(BOARD_PX);
+        if (state.level >= 2) spawnLevelUpFireworks(BOARD_PX);
         levelUpStartedAt = now;
         levelUpLevel = state.level;
       }
