@@ -6,7 +6,15 @@ import {
   updateParticles,
 } from './particles';
 import { draw } from './render';
-import { isMuted, playDeath, playEat, setMuted, unlockAudio } from './sound';
+import {
+  isMuted,
+  playDeath,
+  playEat,
+  setMuted,
+  setMusicActive,
+  setMusicLevel,
+  unlockAudio,
+} from './sound';
 import { cellPx, tickMsForLevel, type Dir, type GameState } from './types';
 
 const KEY_DIRS: Record<string, Dir> = {
@@ -40,6 +48,8 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Space' && state.dead) {
     state = createInitialState();
     clearParticles();
+    setMusicLevel(state.level);
+    setMusicActive(true);
     e.preventDefault();
     return;
   }
@@ -70,8 +80,11 @@ function frame(now: number): void {
     const foodX = state.food.x;
     const foodY = state.food.y;
     step(state);
-    if (!prevDead && state.dead) playDeath();
-    else if (state.score > prevScore) {
+    setMusicLevel(state.level);
+    if (!prevDead && state.dead) {
+      playDeath();
+      setMusicActive(false);
+    } else if (state.score > prevScore) {
       playEat();
       spawnFireworks(
         foodX * prevCell + prevCell / 2,
