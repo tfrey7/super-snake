@@ -80,8 +80,8 @@ function advanceLevelIfNeeded(state: GameState): void {
   const newCols = colsForLevel(target);
   const newCenter = Math.floor(newCols / 2);
   const head = state.snake[0];
-  let dx = newCenter - head.x;
-  let dy = newCenter - head.y;
+  let dx = Math.max(-1, Math.min(1, newCenter - head.x));
+  let dy = Math.max(-1, Math.min(1, newCenter - head.y));
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
