@@ -12,19 +12,27 @@ import {
   clearParticles,
   drawParticles,
   spawnFireworks,
+  spawnLevelUpFireworks,
   updateParticles,
 } from './particles';
-import { draw, drawBeatBorder } from './render';
+import { draw, drawBeatBorder, drawLevelUpOverlay } from './render';
 import {
   getBeatState,
   playDeath,
   playEat,
+  playLevelUp,
   setMusicActive,
   setMusicLevel,
   unlockAudio,
 } from './sound';
 import { drawTitle } from './title';
-import { cellPx, tickMsForLevel, type Dir, type GameState } from './types';
+import {
+  BOARD_PX,
+  cellPx,
+  tickMsForLevel,
+  type Dir,
+  type GameState,
+} from './types';
 
 const KEY_DIRS: Record<string, Dir> = {
   ArrowUp: { x: 0, y: -1 },
@@ -60,6 +68,8 @@ let deathPauseUntil = 0;
 let highScores: HighScore[] = loadHighScores();
 let editState: EntryEditState | null = null;
 let highlightRank: number | null = null;
+let levelUpStartedAt = -Infinity;
+let levelUpLevel = 0;
 
 let state: GameState = createInitialState();
 
@@ -72,6 +82,7 @@ function startGame(initialDir: Dir | null, now: number): void {
   setMusicActive(true);
   highlightRank = null;
   editState = null;
+  levelUpStartedAt = -Infinity;
   phase = 'transitioning';
   transitionStart = now;
 }
@@ -197,6 +208,7 @@ function frame(now: number): void {
       acc -= tickMsForLevel(state.level);
       const prevScore = state.score;
       const prevDead = state.dead;
+      const prevLevel = state.level;
       const prevCell = cellPx(state.level);
       const foodX = state.food.x;
       const foodY = state.food.y;
@@ -215,6 +227,12 @@ function frame(now: number): void {
           prevCell / 24,
         );
       }
+      if (state.level > prevLevel) {
+        playLevelUp();
+        spawnLevelUpFireworks(BOARD_PX);
+        levelUpStartedAt = now;
+        levelUpLevel = state.level;
+      }
     }
   } else {
     // Drain accumulator while dead so we don't burst-step on restart.
@@ -225,6 +243,7 @@ function frame(now: number): void {
   draw(ctx, state, now);
   drawParticles(ctx);
   drawBeatBorder(ctx, getBeatState(), now);
+  drawLevelUpOverlay(ctx, levelUpLevel, levelUpStartedAt, now);
 
   if (phase === 'death-pause' && now >= deathPauseUntil) {
     if (qualifies(state.score, highScores)) {

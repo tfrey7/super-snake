@@ -55,6 +55,22 @@ export function spawnFireworks(cx: number, cy: number, scale = 1): void {
   }
 }
 
+export function spawnLevelUpFireworks(boardPx: number): void {
+  const cx = boardPx / 2;
+  const cy = boardPx / 2;
+  // Big central blast, then satellite bursts in a ring around it.
+  spawnFireworks(cx, cy, 1.6);
+  const ring = 6;
+  const radius = boardPx * 0.28;
+  for (let i = 0; i < ring; i++) {
+    const angle = (Math.PI * 2 * i) / ring + Math.random() * 0.4;
+    const sx = cx + Math.cos(angle) * radius;
+    const sy = cy + Math.sin(angle) * radius;
+    const delay = 90 + i * 70 + Math.random() * 60;
+    setTimeout(() => spawnFireworks(sx, sy, 0.9 + Math.random() * 0.4), delay);
+  }
+}
+
 export function updateParticles(dtMs: number): void {
   const dt = dtMs / 1000;
   const drag = Math.pow(0.5, dt);

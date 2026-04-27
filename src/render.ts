@@ -1,6 +1,8 @@
+import { drawText, textWidth } from './pixelFont';
 import type { BeatState } from './sound';
 import {
   BOARD_PX,
+  LEVELS,
   cellPx,
   colsForLevel,
   tickMsForLevel,
@@ -13,6 +15,7 @@ const SNAKE_BODY = '#5eead4';
 const SNAKE_HEAD = '#a7f3d0';
 const FOOD = '#f472b6';
 const TEXT = '#e6edf3';
+const LEVEL_TEXT = '#fcd34d';
 
 const BG_RGB = hexToRgb(BG);
 const SNAKE_BODY_RGB = hexToRgb(SNAKE_BODY);
@@ -126,8 +129,12 @@ export function draw(
   ctx.fillStyle = TEXT;
   ctx.font = '14px ui-monospace, monospace';
   ctx.textBaseline = 'top';
+  ctx.textAlign = 'start';
   ctx.fillText(`score ${state.score}`, 8, 8);
-
+  ctx.textAlign = 'end';
+  ctx.fillStyle = LEVEL_TEXT;
+  ctx.fillText(`level ${state.level + 1} / ${LEVELS}`, w - 8, 8);
+  ctx.textAlign = 'start';
 }
 
 export function drawBeatBorder(
@@ -254,6 +261,87 @@ export function drawBeatBorder(
   }
 
   ctx.restore();
+}
+
+const LEVEL_UP_DURATION_MS = 1700;
+const LEVEL_UP_FLASH_MS = 320;
+const BANNER_PIXEL = 10;
+const BANNER_COLOR = '252, 211, 77';
+const BANNER_GLOW = '255, 247, 200';
+
+export function drawLevelUpOverlay(
+  ctx: CanvasRenderingContext2D,
+  level: number,
+  startedAt: number,
+  now: number,
+): void {
+  const elapsed = now - startedAt;
+  if (elapsed < 0 || elapsed >= LEVEL_UP_DURATION_MS) return;
+  const w = BOARD_PX;
+  const h = BOARD_PX;
+
+  // Soft full-screen flash that quickly decays.
+  if (elapsed < LEVEL_UP_FLASH_MS) {
+    const f = 1 - elapsed / LEVEL_UP_FLASH_MS;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = `rgba(167, 243, 208, ${f * 0.35})`;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+
+  // Banner: fade-in + scale-up, hold, fade-out.
+  let alpha: number;
+  let scale: number;
+  if (elapsed < 220) {
+    const t = elapsed / 220;
+    alpha = t;
+    scale = 0.6 + 0.4 * easeOutBack(t);
+  } else if (elapsed < LEVEL_UP_DURATION_MS - 380) {
+    alpha = 1;
+    scale = 1;
+  } else {
+    const t = (elapsed - (LEVEL_UP_DURATION_MS - 380)) / 380;
+    alpha = 1 - t;
+    scale = 1 + 0.15 * t;
+  }
+
+  const text = `LEVEL ${level + 1}`;
+  const px = BANNER_PIXEL;
+  const tw = textWidth(text, px);
+  const th = 7 * px;
+  const cx = w / 2;
+  const cy = h / 2;
+  const wobble = Math.sin(elapsed * 0.012) * 1.5;
+
+  ctx.save();
+  ctx.translate(cx, cy + wobble);
+  ctx.scale(scale, scale);
+  ctx.translate(-tw / 2, -th / 2);
+
+  // Soft glow halos.
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const blur of [22, 12, 5]) {
+    ctx.shadowColor = `rgba(${BANNER_GLOW}, 1)`;
+    ctx.shadowBlur = blur;
+    ctx.fillStyle = `rgba(${BANNER_GLOW}, ${0.18 * alpha})`;
+    drawText(ctx, text, 0, 0, px);
+  }
+  ctx.restore();
+
+  // Sharp core.
+  ctx.fillStyle = `rgba(${BANNER_COLOR}, ${alpha})`;
+  drawText(ctx, text, 0, 0, px);
+
+  ctx.restore();
+}
+
+function easeOutBack(t: number): number {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  const u = t - 1;
+  return 1 + c3 * u * u * u + c1 * u * u;
 }
 
 function fillCellAt(

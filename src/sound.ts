@@ -52,6 +52,23 @@ export function playDeath(): void {
   tone(220, 0.45, 'sawtooth', 0.1, 55);
 }
 
+export function playLevelUp(): void {
+  // Ascending A-minor arpeggio with an octave-stamp at the top.
+  const notes: [number, number][] = [
+    [440, 0], // A4
+    [523.25, 60], // C5
+    [659.25, 120], // E5
+    [880, 180], // A5
+  ];
+  for (const [f, delay] of notes) {
+    setTimeout(() => tone(f, 0.18, 'square', 0.1), delay);
+  }
+  setTimeout(() => {
+    tone(1318.51, 0.32, 'triangle', 0.12); // E6 sparkle
+    tone(880, 0.32, 'square', 0.08); // sustain A5 underneath
+  }, 260);
+}
+
 // ---------- Music: layered chiptune scheduler ----------
 
 type MusicLayer = {
