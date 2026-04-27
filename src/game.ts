@@ -1,7 +1,7 @@
 import {
   APPLES_PER_LEVEL,
   INITIAL_LENGTH,
-  LEVEL_SIZES,
+  LEVELS,
   TRANSITION_MS,
   colsForLevel,
   type Cell,
@@ -72,15 +72,30 @@ export function step(state: GameState): void {
 function advanceLevelIfNeeded(state: GameState): void {
   const target = Math.min(
     Math.floor(state.score / APPLES_PER_LEVEL),
-    LEVEL_SIZES.length - 1,
+    LEVELS - 1,
   );
   if (target === state.level) return;
   const fromLevel = state.level;
   state.level = target;
-  const newCenter = Math.floor(colsForLevel(target) / 2);
+  const newCols = colsForLevel(target);
+  const newCenter = Math.floor(newCols / 2);
   const head = state.snake[0];
-  const dx = newCenter - head.x;
-  const dy = newCenter - head.y;
+  let dx = newCenter - head.x;
+  let dy = newCenter - head.y;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const seg of state.snake) {
+    if (seg.x < minX) minX = seg.x;
+    if (seg.x > maxX) maxX = seg.x;
+    if (seg.y < minY) minY = seg.y;
+    if (seg.y > maxY) maxY = seg.y;
+  }
+  if (minX + dx < 0) dx = -minX;
+  else if (maxX + dx > newCols - 1) dx = newCols - 1 - maxX;
+  if (minY + dy < 0) dy = -minY;
+  else if (maxY + dy > newCols - 1) dy = newCols - 1 - maxY;
   for (const seg of state.snake) {
     seg.x += dx;
     seg.y += dy;

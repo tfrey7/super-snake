@@ -22,18 +22,22 @@ export type GameState = {
 };
 
 export const BOARD_PX = 720;
-export const LEVEL_SIZES = [15, 30, 45] as const;
-export const LEVEL_TICK_MS = [180, 110, 70] as const;
-export const APPLES_PER_LEVEL = 5;
+export const LEVELS = 10;
+export const APPLES_PER_LEVEL = 3;
 export const INITIAL_LENGTH = 3;
 export const TRANSITION_MS = 600;
 
+const COLS_BASE = 15;
+const COLS_STEP = 3;
+const TICK_MS_BASE = 180;
+const TICK_MS_FINAL = 50;
+
 function clampLevel(level: number): number {
-  return Math.max(0, Math.min(level, LEVEL_SIZES.length - 1));
+  return Math.max(0, Math.min(level, LEVELS - 1));
 }
 
 export function colsForLevel(level: number): number {
-  return LEVEL_SIZES[clampLevel(level)];
+  return COLS_BASE + COLS_STEP * clampLevel(level);
 }
 
 export function cellPx(level: number): number {
@@ -41,5 +45,6 @@ export function cellPx(level: number): number {
 }
 
 export function tickMsForLevel(level: number): number {
-  return LEVEL_TICK_MS[clampLevel(level)];
+  const t = clampLevel(level) / (LEVELS - 1);
+  return TICK_MS_BASE * Math.pow(TICK_MS_FINAL / TICK_MS_BASE, t);
 }
