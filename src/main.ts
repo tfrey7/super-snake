@@ -5,12 +5,11 @@ import {
   spawnFireworks,
   updateParticles,
 } from './particles';
-import { draw } from './render';
+import { draw, drawBeatBorder } from './render';
 import {
-  isMuted,
+  getBeatState,
   playDeath,
   playEat,
-  setMuted,
   setMusicActive,
   setMusicLevel,
   unlockAudio,
@@ -53,10 +52,6 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
-  if (e.code === 'KeyM') {
-    setMuted(!isMuted());
-    e.preventDefault();
-  }
 });
 
 let lastTime = performance.now();
@@ -96,6 +91,7 @@ function frame(now: number): void {
   updateParticles(dt);
   draw(ctx, state, now);
   drawParticles(ctx);
+  drawBeatBorder(ctx, getBeatState(), now);
   requestAnimationFrame(frame);
 }
 

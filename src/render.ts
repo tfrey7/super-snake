@@ -1,3 +1,4 @@
+import type { BeatState } from './sound';
 import {
   BOARD_PX,
   cellPx,
@@ -139,6 +140,132 @@ export function draw(
     ctx.fillText('press space to restart', w / 2, h / 2 + 14);
     ctx.textAlign = 'start';
   }
+}
+
+export function drawBeatBorder(
+  ctx: CanvasRenderingContext2D,
+  beat: BeatState | null,
+  now: number,
+): void {
+  if (!beat) return;
+  const { layerFireMs, unlockLevels, musicLevel, stepDurMs } = beat;
+  const w = BOARD_PX;
+  const h = BOARD_PX;
+
+  const env = (idx: number, tauMs: number): number => {
+    if (musicLevel < unlockLevels[idx]) return 0;
+    const t = layerFireMs[idx];
+    if (!Number.isFinite(t)) return 0;
+    const dt = now - t;
+    if (dt < 0) return 0;
+    return Math.exp(-dt / tauMs);
+  };
+
+  const heartbeat = env(0, 700);
+  const bass = env(1, 220);
+  const kick = env(2, 140);
+  const lead = env(3, 220);
+  const hat = env(4, 90);
+  const arp = env(5, 70);
+  const snare = env(6, 220);
+  const harmony = env(8, 240);
+  const flourish = env(9, 110);
+
+  let pad = 0;
+  if (musicLevel >= unlockLevels[7]) {
+    const t = layerFireMs[7];
+    const barMs = stepDurMs * 16;
+    if (Number.isFinite(t)) {
+      const dt = now - t;
+      if (dt >= 0 && dt < barMs) pad = 1 - dt / barMs;
+    }
+  }
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+
+  // Base outline — heartbeat sets the slow pulse, bass adds thickness, kick flashes brightness.
+  const thickness = 1 + bass * 3 + heartbeat * 1.4;
+  const baseAlpha = Math.min(1, 0.18 + heartbeat * 0.45 + kick * 0.6 + pad * 0.18);
+  ctx.lineWidth = thickness;
+  ctx.strokeStyle = `rgba(94, 234, 212, ${baseAlpha})`;
+  const o = thickness / 2;
+  ctx.strokeRect(o, o, w - 2 * o, h - 2 * o);
+
+  // Snare — pink slabs on left & right edges, the 2-and-4 backbeat.
+  if (snare > 0.02) {
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = `rgba(244, 114, 182, ${snare * 0.65})`;
+    ctx.beginPath();
+    ctx.moveTo(3, 0);
+    ctx.lineTo(3, h);
+    ctx.moveTo(w - 3, 0);
+    ctx.lineTo(w - 3, h);
+    ctx.stroke();
+  }
+
+  // Hi-hat — even tick marks across the top edge, all blink together on each 8th.
+  if (musicLevel >= unlockLevels[4] && hat > 0.02) {
+    ctx.fillStyle = `rgba(229, 231, 235, ${hat * 0.7})`;
+    const n = 16;
+    for (let i = 0; i < n; i++) {
+      const x = ((i + 0.5) * w) / n;
+      ctx.fillRect(x - 1, 0, 2, 5);
+    }
+  }
+
+  // Arp — narrower micro-ticks across the bottom edge on 16th-note offbeats.
+  if (musicLevel >= unlockLevels[5] && arp > 0.02) {
+    ctx.fillStyle = `rgba(216, 180, 254, ${arp * 0.6})`;
+    const n = 16;
+    for (let i = 0; i < n; i++) {
+      const x = ((i + 0.5) * w) / n;
+      ctx.fillRect(x - 0.5, h - 4, 1.5, 4);
+    }
+  }
+
+  // Lead — top corner brackets glow on each lead note.
+  if (musicLevel >= unlockLevels[3] && lead > 0.02) {
+    const sz = 16;
+    ctx.fillStyle = `rgba(167, 243, 208, ${lead * 0.6})`;
+    ctx.fillRect(0, 0, sz, 3);
+    ctx.fillRect(0, 0, 3, sz);
+    ctx.fillRect(w - sz, 0, sz, 3);
+    ctx.fillRect(w - 3, 0, 3, sz);
+  }
+
+  // Harmony — bottom corner brackets on the doubled-third line.
+  if (musicLevel >= unlockLevels[8] && harmony > 0.02) {
+    const sz = 16;
+    ctx.fillStyle = `rgba(254, 215, 170, ${harmony * 0.55})`;
+    ctx.fillRect(0, h - 3, sz, 3);
+    ctx.fillRect(0, h - sz, 3, sz);
+    ctx.fillRect(w - sz, h - 3, sz, 3);
+    ctx.fillRect(w - 3, h - sz, 3, sz);
+  }
+
+  // Flourish — corner sparks expanding inward when the open hat fires.
+  if (musicLevel >= unlockLevels[9] && flourish > 0.02) {
+    const reach = 8 + flourish * 28;
+    ctx.strokeStyle = `rgba(252, 211, 77, ${flourish * 0.55})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, reach);
+    ctx.lineTo(0, 0);
+    ctx.lineTo(reach, 0);
+    ctx.moveTo(w - reach, 0);
+    ctx.lineTo(w, 0);
+    ctx.lineTo(w, reach);
+    ctx.moveTo(w, h - reach);
+    ctx.lineTo(w, h);
+    ctx.lineTo(w - reach, h);
+    ctx.moveTo(reach, h);
+    ctx.lineTo(0, h);
+    ctx.lineTo(0, h - reach);
+    ctx.stroke();
+  }
+
+  ctx.restore();
 }
 
 function fillCellAt(

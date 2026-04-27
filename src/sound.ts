@@ -1,17 +1,12 @@
 import { LEVELS, tickMsForLevel } from './types';
 
 let ctx: AudioContext | null = null;
-let muted = false;
-let muteGain: GainNode | null = null;
 
 function getCtx(): AudioContext | null {
   if (!ctx) {
     const Ctor = window.AudioContext ?? (window as any).webkitAudioContext;
     if (!Ctor) return null;
     ctx = new Ctor();
-    muteGain = ctx.createGain();
-    muteGain.gain.value = muted ? 0 : 1;
-    muteGain.connect(ctx.destination);
   }
   if (ctx.state === 'suspended') void ctx.resume();
   return ctx;
@@ -22,18 +17,6 @@ export function unlockAudio(): void {
   ensureMusic();
 }
 
-export function setMuted(value: boolean): void {
-  muted = value;
-  const ac = ctx;
-  if (!ac || !muteGain) return;
-  muteGain.gain.cancelScheduledValues(ac.currentTime);
-  muteGain.gain.linearRampToValueAtTime(value ? 0 : 1, ac.currentTime + 0.05);
-}
-
-export function isMuted(): boolean {
-  return muted;
-}
-
 function tone(
   freq: number,
   duration: number,
@@ -42,7 +25,7 @@ function tone(
   freqEnd?: number,
 ): void {
   const ac = getCtx();
-  if (!ac || !muteGain) return;
+  if (!ac) return;
   const osc = ac.createOscillator();
   const g = ac.createGain();
   osc.type = type;
@@ -55,7 +38,7 @@ function tone(
   }
   g.gain.setValueAtTime(gain, ac.currentTime);
   g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + duration);
-  osc.connect(g).connect(muteGain);
+  osc.connect(g).connect(ac.destination);
   osc.start();
   osc.stop(ac.currentTime + duration);
 }
@@ -75,7 +58,8 @@ type MusicLayer = {
   unlockLevel: number;
   baseGain: number;
   gain: GainNode;
-  trigger: (step: number, time: number, dest: AudioNode, stepDur: number) => void;
+  trigger: (step: number, time: number, dest: AudioNode, stepDur: number) => boolean;
+  lastFireAudioTime: number;
 };
 
 const STEPS_PER_BAR = 16;
@@ -105,6 +89,7 @@ const CHORD = [220, 261.63, 329.63]; // A3 C4 E4
 let musicMaster: GainNode | null = null;
 let layers: MusicLayer[] = [];
 let musicLevel = 0;
+let musicActive = true;
 let stepIndex = 0;
 let nextStepTime = 0;
 let schedulerTimer: number | null = null;
@@ -223,77 +208,99 @@ function makeLayer(
   const gain = ac.createGain();
   gain.gain.value = 0;
   gain.connect(master);
-  return { unlockLevel, baseGain, gain, trigger };
+  return { unlockLevel, baseGain, gain, trigger, lastFireAudioTime: -Infinity };
 }
 
 function buildLayers(ac: AudioContext, master: GainNode): MusicLayer[] {
   return [
     // L0 — heartbeat: lone low pulse on beats 1 and 3
     makeLayer(ac, master, 0, 0.22, (step, time, dest) => {
-      if (step === 0) playOsc(ac, dest, 110, time, 0.42, 'square', 0.55);
-      else if (step === 8) playOsc(ac, dest, 110, time, 0.32, 'square', 0.4);
+      if (step === 0) {
+        playOsc(ac, dest, 110, time, 0.42, 'square', 0.55);
+        return true;
+      }
+      if (step === 8) {
+        playOsc(ac, dest, 110, time, 0.32, 'square', 0.4);
+        return true;
+      }
+      return false;
     }),
 
     // L1 — bassline
     makeLayer(ac, master, 1, 0.28, (step, time, dest) => {
       const f = BASS[step];
-      if (f) playOsc(ac, dest, f, time, 0.17, 'square', 0.55, 0.003);
+      if (!f) return false;
+      playOsc(ac, dest, f, time, 0.17, 'square', 0.55, 0.003);
+      return true;
     }),
 
     // L2 — kick: 4-on-the-floor
     makeLayer(ac, master, 2, 0.55, (step, time, dest) => {
-      if (step % 4 === 0) playKick(ac, dest, time);
+      if (step % 4 !== 0) return false;
+      playKick(ac, dest, time);
+      return true;
     }),
 
     // L3 — lead melody (triangle)
     makeLayer(ac, master, 3, 0.18, (step, time, dest) => {
       const f = LEAD[step];
-      if (f) playOsc(ac, dest, f, time, 0.18, 'triangle', 0.65, 0.005);
+      if (!f) return false;
+      playOsc(ac, dest, f, time, 0.18, 'triangle', 0.65, 0.005);
+      return true;
     }),
 
     // L4 — hi-hat: 8th notes
     makeLayer(ac, master, 4, 0.18, (step, time, dest) => {
-      if (step % 2 === 0) playHat(ac, dest, time, false);
+      if (step % 2 !== 0) return false;
+      playHat(ac, dest, time, false);
+      return true;
     }),
 
     // L5 — arpeggio counter, fills the lead's rests
     makeLayer(ac, master, 5, 0.13, (step, time, dest) => {
-      if (step % 2 === 1) playOsc(ac, dest, ARP[step], time, 0.08, 'square', 0.45, 0.002);
+      if (step % 2 !== 1) return false;
+      playOsc(ac, dest, ARP[step], time, 0.08, 'square', 0.45, 0.002);
+      return true;
     }),
 
     // L6 — snare on beats 2 and 4
     makeLayer(ac, master, 6, 0.32, (step, time, dest) => {
-      if (step === 4 || step === 12) playSnare(ac, dest, time);
+      if (step !== 4 && step !== 12) return false;
+      playSnare(ac, dest, time);
+      return true;
     }),
 
     // L7 — chord pad: sustained A-minor triad, refreshed each bar
     makeLayer(ac, master, 7, 0.1, (step, time, dest, stepDur) => {
-      if (step === 0) {
-        const dur = stepDur * STEPS_PER_BAR;
-        for (const f of CHORD) playPad(ac, dest, f, time, dur);
-      }
+      if (step !== 0) return false;
+      const dur = stepDur * STEPS_PER_BAR;
+      for (const f of CHORD) playPad(ac, dest, f, time, dur);
+      return true;
     }),
 
     // L8 — harmony layer doubling the lead a third above
     makeLayer(ac, master, 8, 0.12, (step, time, dest) => {
       const f = HARMONY[step];
-      if (f) playOsc(ac, dest, f, time, 0.18, 'triangle', 0.5, 0.005);
+      if (!f) return false;
+      playOsc(ac, dest, f, time, 0.18, 'triangle', 0.5, 0.005);
+      return true;
     }),
 
     // L9 — flourish: octave-up arp and an open hat on the and-of-4
     makeLayer(ac, master, 9, 0.2, (step, time, dest) => {
       playOsc(ac, dest, ARP[step] * 2, time, 0.05, 'triangle', 0.22, 0.002);
       if (step === 14) playHat(ac, dest, time, true);
+      return true;
     }),
   ];
 }
 
 function ensureMusic(): void {
   const ac = getCtx();
-  if (!ac || !muteGain || musicMaster) return;
+  if (!ac || musicMaster) return;
   musicMaster = ac.createGain();
   musicMaster.gain.value = 0;
-  musicMaster.connect(muteGain);
+  musicMaster.connect(ac.destination);
   layers = buildLayers(ac, musicMaster);
   for (const layer of layers) {
     layer.gain.gain.value = musicLevel >= layer.unlockLevel ? layer.baseGain : 0;
@@ -319,12 +326,34 @@ function scheduleAhead(): void {
   while (nextStepTime < horizon) {
     for (const layer of layers) {
       if (musicLevel >= layer.unlockLevel) {
-        layer.trigger(stepIndex, nextStepTime, layer.gain, stepDur);
+        const fired = layer.trigger(stepIndex, nextStepTime, layer.gain, stepDur);
+        if (fired && musicActive) layer.lastFireAudioTime = nextStepTime;
       }
     }
     nextStepTime += stepDur;
     stepIndex = (stepIndex + 1) % STEPS_PER_BAR;
   }
+}
+
+export type BeatState = {
+  layerFireMs: number[];
+  unlockLevels: number[];
+  musicLevel: number;
+  stepDurMs: number;
+};
+
+export function getBeatState(): BeatState | null {
+  const ac = ctx;
+  if (!ac || !layers.length) return null;
+  const offsetMs = performance.now() - ac.currentTime * 1000;
+  return {
+    layerFireMs: layers.map((l) =>
+      Number.isFinite(l.lastFireAudioTime) ? l.lastFireAudioTime * 1000 + offsetMs : -Infinity,
+    ),
+    unlockLevels: layers.map((l) => l.unlockLevel),
+    musicLevel,
+    stepDurMs: stepDurForLevel(musicLevel) * 1000,
+  };
 }
 
 export function setMusicLevel(level: number): void {
@@ -342,6 +371,7 @@ export function setMusicLevel(level: number): void {
 }
 
 export function setMusicActive(active: boolean): void {
+  musicActive = active;
   const ac = ctx;
   if (!ac || !musicMaster) return;
   musicMaster.gain.cancelScheduledValues(ac.currentTime);
