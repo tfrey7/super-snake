@@ -9,18 +9,33 @@ import {
   type GameState,
 } from './types';
 
-const BG = '#0e1116';
-const GRID = '#161b22';
 const SNAKE_BODY = '#5eead4';
 const SNAKE_HEAD = '#a7f3d0';
 const FOOD = '#f472b6';
 const TEXT = '#e6edf3';
 const LEVEL_TEXT = '#fcd34d';
 
-const BG_RGB = hexToRgb(BG);
 const SNAKE_BODY_RGB = hexToRgb(SNAKE_BODY);
 const SNAKE_HEAD_RGB = hexToRgb(SNAKE_HEAD);
 const FOOD_RGB = hexToRgb(FOOD);
+
+type Rgb = [number, number, number];
+
+// Per-level palette: HSL hue rotation around a fixed dark luminance, low chroma.
+// Snake/food stay constant so contrast is preserved as the world drifts in tone.
+// Level 1 matches the original cool-blue baseline; subsequent levels rotate the wheel.
+const LEVEL_PALETTE: Array<{ bg: Rgb; grid: Rgb }> = [
+  { bg: [14, 17, 22], grid: [22, 27, 34] }, // 1: cool blue (origin)
+  { bg: [14, 22, 22], grid: [22, 34, 34] }, // 2: cyan
+  { bg: [14, 22, 18], grid: [22, 34, 28] }, // 3: teal
+  { bg: [15, 22, 14], grid: [24, 34, 22] }, // 4: green
+  { bg: [20, 22, 14], grid: [32, 34, 22] }, // 5: yellow-green
+  { bg: [22, 18, 14], grid: [34, 28, 22] }, // 6: amber
+  { bg: [22, 14, 14], grid: [34, 22, 22] }, // 7: red
+  { bg: [22, 14, 19], grid: [34, 22, 30] }, // 8: magenta
+  { bg: [19, 14, 22], grid: [26, 22, 34] }, // 9: violet
+  { bg: [14, 14, 22], grid: [22, 22, 34] }, // 10: indigo
+];
 
 const SHIMMER_AMP = 55;
 const SHIMMER_BG_AMP = 22;
@@ -36,13 +51,12 @@ export function draw(
   const w = BOARD_PX;
   const h = BOARD_PX;
 
-  ctx.fillStyle = BG;
-  ctx.fillRect(0, 0, w, h);
-
   let cell: number;
   let originX: number;
   let originY: number;
   let cols: number;
+  let bgRgb: Rgb;
+  let gridRgb: Rgb;
 
   if (state.transition) {
     const { fromLevel, toLevel, dx, dy, elapsedMs, durationMs } =
@@ -54,12 +68,22 @@ export function draw(
     originX = lerp(-dx * oldCell, 0, t);
     originY = lerp(-dy * oldCell, 0, t);
     cols = colsForLevel(toLevel);
+    const fromPal = LEVEL_PALETTE[fromLevel];
+    const toPal = LEVEL_PALETTE[toLevel];
+    bgRgb = lerpRgb(fromPal.bg, toPal.bg, t);
+    gridRgb = lerpRgb(fromPal.grid, toPal.grid, t);
   } else {
     cell = cellPx(state.level);
     originX = 0;
     originY = 0;
     cols = colsForLevel(state.level);
+    const pal = LEVEL_PALETTE[state.level];
+    bgRgb = pal.bg;
+    gridRgb = pal.grid;
   }
+
+  ctx.fillStyle = rgbStr(bgRgb);
+  ctx.fillRect(0, 0, w, h);
 
   const shimmerEnabled = state.level >= 2;
   const tickMs = tickMsForLevel(state.level);
@@ -80,7 +104,7 @@ export function draw(
     return 0.5 * (1 + Math.cos((Math.PI * d) / SHIMMER_BAND_CELLS));
   };
 
-  ctx.strokeStyle = GRID;
+  ctx.strokeStyle = rgbStr(gridRgb);
   ctx.lineWidth = 1;
   for (let x = 0; x <= cols; x++) {
     const px = originX + x * cell + 0.5;
@@ -111,7 +135,7 @@ export function draw(
         if (occupied.has(y * cols + x)) continue;
         const factor = shimmerAt(x, y);
         if (factor <= 0) continue;
-        ctx.fillStyle = shiftRgb(BG_RGB, factor * SHIMMER_BG_AMP);
+        ctx.fillStyle = shiftRgb(bgRgb, factor * SHIMMER_BG_AMP);
         fillCellAt(ctx, x, y, cell, originX, originY);
       }
     }
@@ -373,7 +397,7 @@ function easeOutCubic(t: number): number {
   return 1 - u * u * u;
 }
 
-function hexToRgb(hex: string): [number, number, number] {
+function hexToRgb(hex: string): Rgb {
   return [
     parseInt(hex.slice(1, 3), 16),
     parseInt(hex.slice(3, 5), 16),
@@ -381,11 +405,23 @@ function hexToRgb(hex: string): [number, number, number] {
   ];
 }
 
-function shiftRgb(rgb: [number, number, number], amt: number): string {
+function shiftRgb(rgb: Rgb, amt: number): string {
   const r = clamp255(rgb[0] + amt);
   const g = clamp255(rgb[1] + amt);
   const b = clamp255(rgb[2] + amt);
   return `rgb(${r}, ${g}, ${b})`;
+}
+
+function lerpRgb(a: Rgb, b: Rgb, t: number): Rgb {
+  return [
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+    a[2] + (b[2] - a[2]) * t,
+  ];
+}
+
+function rgbStr(rgb: Rgb): string {
+  return `rgb(${Math.round(rgb[0])}, ${Math.round(rgb[1])}, ${Math.round(rgb[2])})`;
 }
 
 function clamp255(v: number): number {
