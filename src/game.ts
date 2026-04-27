@@ -1,9 +1,8 @@
 import {
-  APPLES_PER_LEVEL,
   INITIAL_LENGTH,
-  LEVELS,
   TRANSITION_MS,
   colsForLevel,
+  levelForScore,
   type Cell,
   type Dir,
   type GameState,
@@ -70,10 +69,7 @@ export function step(state: GameState): void {
 }
 
 function advanceLevelIfNeeded(state: GameState): void {
-  const target = Math.min(
-    Math.floor(state.score / APPLES_PER_LEVEL),
-    LEVELS - 1,
-  );
+  const target = levelForScore(state.score);
   if (target === state.level) return;
   const fromLevel = state.level;
   state.level = target;

@@ -3,8 +3,10 @@ import type { BeatState } from './sound';
 import {
   BOARD_PX,
   LEVELS,
+  applesToAdvanceFrom,
   cellPx,
   colsForLevel,
+  scoreToReachLevel,
   tickMsForLevel,
   type GameState,
 } from './types';
@@ -12,8 +14,6 @@ import {
 const SNAKE_BODY = '#5eead4';
 const SNAKE_HEAD = '#a7f3d0';
 const FOOD = '#f472b6';
-const TEXT = '#e6edf3';
-const LEVEL_TEXT = '#fcd34d';
 
 const SNAKE_BODY_RGB = hexToRgb(SNAKE_BODY);
 const SNAKE_HEAD_RGB = hexToRgb(SNAKE_HEAD);
@@ -24,17 +24,18 @@ type Rgb = [number, number, number];
 // Per-level palette: HSL hue rotation around a fixed dark luminance, low chroma.
 // Snake/food stay constant so contrast is preserved as the world drifts in tone.
 // Level 1 matches the original cool-blue baseline; subsequent levels rotate the wheel.
-const LEVEL_PALETTE: Array<{ bg: Rgb; grid: Rgb }> = [
-  { bg: [14, 17, 22], grid: [22, 27, 34] }, // 1: cool blue (origin)
-  { bg: [14, 22, 22], grid: [22, 34, 34] }, // 2: cyan
-  { bg: [14, 22, 18], grid: [22, 34, 28] }, // 3: teal
-  { bg: [15, 22, 14], grid: [24, 34, 22] }, // 4: green
-  { bg: [20, 22, 14], grid: [32, 34, 22] }, // 5: yellow-green
-  { bg: [22, 18, 14], grid: [34, 28, 22] }, // 6: amber
-  { bg: [22, 14, 14], grid: [34, 22, 22] }, // 7: red
-  { bg: [22, 14, 19], grid: [34, 22, 30] }, // 8: magenta
-  { bg: [19, 14, 22], grid: [26, 22, 34] }, // 9: violet
-  { bg: [14, 14, 22], grid: [22, 22, 34] }, // 10: indigo
+// Accent is the bright sibling of bg/grid — drives label text and the level progress bar.
+const LEVEL_PALETTE: Array<{ bg: Rgb; grid: Rgb; accent: Rgb }> = [
+  { bg: [14, 17, 22], grid: [22, 27, 34], accent: [147, 197, 253] }, // 1: cool blue (origin)
+  { bg: [14, 22, 22], grid: [22, 34, 34], accent: [103, 232, 249] }, // 2: cyan
+  { bg: [14, 22, 18], grid: [22, 34, 28], accent: [94, 234, 212] }, // 3: teal
+  { bg: [15, 22, 14], grid: [24, 34, 22], accent: [134, 239, 172] }, // 4: green
+  { bg: [20, 22, 14], grid: [32, 34, 22], accent: [190, 242, 100] }, // 5: yellow-green
+  { bg: [22, 18, 14], grid: [34, 28, 22], accent: [252, 211, 77] }, // 6: amber
+  { bg: [22, 14, 14], grid: [34, 22, 22], accent: [252, 165, 165] }, // 7: red
+  { bg: [22, 14, 19], grid: [34, 22, 30], accent: [249, 168, 212] }, // 8: magenta
+  { bg: [19, 14, 22], grid: [26, 22, 34], accent: [196, 181, 253] }, // 9: violet
+  { bg: [14, 14, 22], grid: [22, 22, 34], accent: [165, 180, 252] }, // 10: indigo
 ];
 
 const SHIMMER_AMP = 55;
@@ -57,6 +58,7 @@ export function draw(
   let cols: number;
   let bgRgb: Rgb;
   let gridRgb: Rgb;
+  let accentRgb: Rgb;
 
   if (state.transition) {
     const { fromLevel, toLevel, dx, dy, elapsedMs, durationMs } =
@@ -72,6 +74,7 @@ export function draw(
     const toPal = LEVEL_PALETTE[toLevel];
     bgRgb = lerpRgb(fromPal.bg, toPal.bg, t);
     gridRgb = lerpRgb(fromPal.grid, toPal.grid, t);
+    accentRgb = lerpRgb(fromPal.accent, toPal.accent, t);
   } else {
     cell = cellPx(state.level);
     originX = 0;
@@ -80,6 +83,7 @@ export function draw(
     const pal = LEVEL_PALETTE[state.level];
     bgRgb = pal.bg;
     gridRgb = pal.grid;
+    accentRgb = pal.accent;
   }
 
   ctx.fillStyle = rgbStr(bgRgb);
@@ -151,15 +155,29 @@ export function draw(
     fillCellAt(ctx, seg.x, seg.y, cell, originX, originY);
   }
 
-  ctx.fillStyle = TEXT;
+  ctx.fillStyle = rgbStr(accentRgb);
   ctx.font = '14px ui-monospace, monospace';
   ctx.textBaseline = 'top';
   ctx.textAlign = 'start';
   ctx.fillText(`score ${state.score}`, 8, 8);
   ctx.textAlign = 'end';
-  ctx.fillStyle = LEVEL_TEXT;
   ctx.fillText(`level ${state.level + 1} / ${LEVELS}`, w - 8, 8);
   ctx.textAlign = 'start';
+
+  if (state.level < LEVELS - 1) {
+    const eaten = state.score - scoreToReachLevel(state.level);
+    const need = applesToAdvanceFrom(state.level);
+    const t = Math.max(0, Math.min(1, eaten / need));
+    const barW = 100;
+    const barH = 4;
+    const barX = w - 8 - barW;
+    const barY = 24;
+    const accent = `${Math.round(accentRgb[0])}, ${Math.round(accentRgb[1])}, ${Math.round(accentRgb[2])}`;
+    ctx.fillStyle = `rgba(${accent}, 0.2)`;
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = `rgba(${accent}, 0.9)`;
+    ctx.fillRect(barX, barY, barW * t, barH);
+  }
 }
 
 export function drawBeatBorder(

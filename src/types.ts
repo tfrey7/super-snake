@@ -23,7 +23,6 @@ export type GameState = {
 
 export const BOARD_PX = 720;
 export const LEVELS = 10;
-export const APPLES_PER_LEVEL = 3;
 export const INITIAL_LENGTH = 3;
 export const TRANSITION_MS = 600;
 
@@ -31,9 +30,29 @@ const COLS_BASE = 15;
 const COLS_STEP = 3;
 const TICK_MS_BASE = 180;
 const TICK_MS_FINAL = 50;
+const APPLES_BASE = 3;
+const APPLES_STEP = 2;
 
 function clampLevel(level: number): number {
   return Math.max(0, Math.min(level, LEVELS - 1));
+}
+
+export function applesToAdvanceFrom(level: number): number {
+  return APPLES_BASE + APPLES_STEP * clampLevel(level);
+}
+
+export function scoreToReachLevel(level: number): number {
+  const n = clampLevel(level);
+  return APPLES_BASE * n + (APPLES_STEP * n * (n - 1)) / 2;
+}
+
+export function levelForScore(score: number): number {
+  let lvl = 0;
+  for (let n = 1; n < LEVELS; n++) {
+    if (scoreToReachLevel(n) <= score) lvl = n;
+    else break;
+  }
+  return lvl;
 }
 
 export function colsForLevel(level: number): number {
