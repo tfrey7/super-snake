@@ -55,19 +55,28 @@ let acc = 0;
 function frame(now: number): void {
   const dt = now - lastTime;
   lastTime = now;
+  if (state.transition) {
+    state.transition.elapsedMs += dt;
+    if (state.transition.elapsedMs >= state.transition.durationMs) {
+      state.transition = null;
+    }
+  }
   acc += dt;
   while (acc >= tickMsForLevel(state.level)) {
     acc -= tickMsForLevel(state.level);
     const prevScore = state.score;
     const prevDead = state.dead;
+    const prevCell = cellPx(state.level);
     const foodX = state.food.x;
     const foodY = state.food.y;
     step(state);
     if (!prevDead && state.dead) playDeath();
     else if (state.score > prevScore) {
       playEat();
-      const cell = cellPx(state.level);
-      spawnFireworks(foodX * cell + cell / 2, foodY * cell + cell / 2);
+      spawnFireworks(
+        foodX * prevCell + prevCell / 2,
+        foodY * prevCell + prevCell / 2,
+      );
     }
   }
   updateParticles(dt);

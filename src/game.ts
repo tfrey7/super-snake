@@ -2,6 +2,7 @@ import {
   APPLES_PER_LEVEL,
   INITIAL_LENGTH,
   LEVEL_SIZES,
+  TRANSITION_MS,
   colsForLevel,
   type Cell,
   type Dir,
@@ -26,6 +27,7 @@ export function createInitialState(): GameState {
     score: 0,
     dead: false,
     level,
+    transition: null,
   };
   state.food = randomEmptyCell(state);
   return state;
@@ -72,7 +74,25 @@ function advanceLevelIfNeeded(state: GameState): void {
     Math.floor(state.score / APPLES_PER_LEVEL),
     LEVEL_SIZES.length - 1,
   );
+  if (target === state.level) return;
+  const fromLevel = state.level;
   state.level = target;
+  const newCenter = Math.floor(colsForLevel(target) / 2);
+  const head = state.snake[0];
+  const dx = newCenter - head.x;
+  const dy = newCenter - head.y;
+  for (const seg of state.snake) {
+    seg.x += dx;
+    seg.y += dy;
+  }
+  state.transition = {
+    fromLevel,
+    toLevel: target,
+    dx,
+    dy,
+    elapsedMs: 0,
+    durationMs: TRANSITION_MS,
+  };
 }
 
 export function randomEmptyCell(state: GameState): Cell {
