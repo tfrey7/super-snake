@@ -1,6 +1,9 @@
 import { GLYPHS } from './pixelFont';
 import { BOARD_PX } from './types';
 
+declare const __BUILD_VERSION__: string;
+declare const __BUILD_DATE__: string;
+
 const TITLE_CORE = '167, 243, 208';
 const TITLE_GLOW = '94, 234, 212';
 const PROMPT_COLOR = '244, 114, 182';
@@ -99,6 +102,18 @@ export function drawTitle(
   ctx.fillStyle = `rgba(${TITLE_GLOW}, ${0.45 * alpha})`;
   ctx.font = '11px ui-monospace, monospace';
   ctx.fillText('a luminous serpent', w / 2, startY - 28);
+  ctx.textAlign = 'start';
+  ctx.textBaseline = 'top';
+
+  // Subtle build stamp in the bottom-right corner.
+  ctx.fillStyle = `rgba(${TITLE_GLOW}, ${0.22 * alpha})`;
+  ctx.font = '9px ui-monospace, monospace';
+  ctx.textAlign = 'end';
+  ctx.textBaseline = 'bottom';
+  const stamp = __BUILD_DATE__
+    ? `${__BUILD_VERSION__} · ${__BUILD_DATE__}`
+    : __BUILD_VERSION__;
+  ctx.fillText(stamp, w - 8, h - 6);
   ctx.textAlign = 'start';
   ctx.textBaseline = 'top';
 }
