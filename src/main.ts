@@ -1,4 +1,4 @@
-import { createInitialState, setNextDir, step } from './game';
+import { cheatEat, createInitialState, setNextDir, step } from './game';
 import {
   drawLeaderboard,
   insertScore,
@@ -176,6 +176,24 @@ window.addEventListener('keydown', (e) => {
 
   if (phase === 'death-pause') {
     // Ignore input until the pause resolves.
+    return;
+  }
+
+  // Cheat: Shift+A bumps the score (and level) to fast-forward into later levels.
+  if (phase === 'playing' && e.shiftKey && e.code === 'KeyA') {
+    const prevLevel = state.level;
+    cheatEat(state);
+    setMusicLevel(state.level);
+    playEat();
+    if (state.level > prevLevel) {
+      playLevelUp();
+      if (state.level >= 3) {
+        spawnLevelUpFireworks(BOARD_PX, levelFireworkColors(state.level));
+      }
+      levelUpStartedAt = performance.now();
+      levelUpLevel = state.level;
+    }
+    e.preventDefault();
     return;
   }
 

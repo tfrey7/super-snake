@@ -71,6 +71,14 @@ export function step(state: GameState): void {
   }
 }
 
+// Dev cheat: bump the score (and trigger level-up if crossed) without
+// touching the snake or the on-field apple. Bound to Shift+A in main.ts.
+export function cheatEat(state: GameState): void {
+  if (state.dead) return;
+  state.score += 1;
+  advanceLevelIfNeeded(state);
+}
+
 function advanceLevelIfNeeded(state: GameState): void {
   const target = levelForScore(state.score);
   if (target === state.level) return;
