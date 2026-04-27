@@ -46,6 +46,18 @@ const PULSE_BG_AMP = 22;
 const PULSE_BAND = 3.2;
 const PULSE_SWEEP_MS = 1800;
 
+// Block extrusion: full lift is a fraction of tile height so depth scales with
+// the grid. Apples crown at full, the head sits at half, body at a quarter —
+// stepped heights make the apple read as the goal and the snake as a low coil.
+const BLOCK_LIFT_FRAC = 0.6;
+const HEAD_LIFT_RATIO = 0.5;
+const BODY_LIFT_RATIO = 0.25;
+// Peak ripple lift relative to fullLift — kept under body height so the wave
+// reads as a swell beneath the snake rather than something that towers over it.
+const PULSE_LIFT_RATIO = 0.2;
+const SIDE_RIGHT_SHADE = 0.7;
+const SIDE_LEFT_SHADE = 0.5;
+
 // Each pulse is a Chebyshev-distance ring expanding from a fixed grid origin.
 // Rings are emitted from an apple at spawn time but live independently — once
 // airborne they no longer track the apple, so eating mid-sweep can leave two
@@ -78,6 +90,7 @@ export function draw(
   let gridRgb: Rgb;
   let accentRgb: Rgb;
 
+  let depth: number;
   if (state.transition) {
     const { fromLevel, toLevel, elapsedMs, durationMs } = state.transition;
     const t = easeOutCubic(Math.min(elapsedMs / durationMs, 1));
@@ -91,6 +104,7 @@ export function draw(
     bgRgb = lerpRgb(fromPal.bg, toPal.bg, t);
     gridRgb = lerpRgb(fromPal.grid, toPal.grid, t);
     accentRgb = lerpRgb(fromPal.accent, toPal.accent, t);
+    depth = lerp(depthForLevel(fromLevel), depthForLevel(toLevel), t);
   } else {
     cols = colsForLevel(state.level);
     layout = isoLayoutFor(isoTileWFor(cols), cols);
@@ -98,6 +112,7 @@ export function draw(
     bgRgb = pal.bg;
     gridRgb = pal.grid;
     accentRgb = pal.accent;
+    depth = depthForLevel(state.level);
   }
 
   ctx.fillStyle = rgbStr(bgRgb);
@@ -164,31 +179,62 @@ export function draw(
   }
   ctx.stroke();
 
+  // Extrude every visible thing — snake, apples, and ripple-touched empty tiles
+  // — into iso blocks, then draw back-to-front along the iso depth axis (x+y,
+  // larger values closer to the viewer). The pulse ring contributes both a
+  // brightness shift on the top face AND a small lift, so it reads as a wave
+  // rolling across the board that nudges the snake and apples upward as it
+  // passes through them.
+  const fullLift = layout.tileH * BLOCK_LIFT_FRAC * depth;
+  const headLift = fullLift * HEAD_LIFT_RATIO;
+  const bodyLift = fullLift * BODY_LIFT_RATIO;
+  const pulseLiftMax = fullLift * PULSE_LIFT_RATIO;
+  type Block = { x: number; y: number; rgb: Rgb; lift: number; pulse: number };
+  const blocks: Block[] = [];
+  const occupied = new Set<number>();
+  for (const f of state.food) {
+    const factor = pulseAt(f.x, f.y);
+    blocks.push({
+      x: f.x,
+      y: f.y,
+      rgb: FOOD_RGB,
+      lift: fullLift + factor * pulseLiftMax,
+      pulse: factor * PULSE_AMP,
+    });
+    occupied.add(f.y * cols + f.x);
+  }
+  for (let i = 0; i < state.snake.length; i++) {
+    const seg = state.snake[i];
+    const isHead = i === 0;
+    const factor = pulseAt(seg.x, seg.y);
+    blocks.push({
+      x: seg.x,
+      y: seg.y,
+      rgb: isHead ? SNAKE_HEAD_RGB : SNAKE_BODY_RGB,
+      lift: (isHead ? headLift : bodyLift) + factor * pulseLiftMax,
+      pulse: factor * PULSE_AMP,
+    });
+    occupied.add(seg.y * cols + seg.x);
+  }
   if (pulses.length > 0) {
-    const occupied = new Set<number>();
-    for (const f of state.food) occupied.add(f.y * cols + f.x);
-    for (const seg of state.snake) occupied.add(seg.y * cols + seg.x);
     for (let y = 0; y < cols; y++) {
       for (let x = 0; x < cols; x++) {
         if (occupied.has(y * cols + x)) continue;
         const factor = pulseAt(x, y);
         if (factor <= 0) continue;
-        ctx.fillStyle = shiftRgb(bgRgb, factor * PULSE_BG_AMP);
-        fillTile(ctx, x, y, layout);
+        blocks.push({
+          x,
+          y,
+          rgb: bgRgb,
+          lift: factor * pulseLiftMax,
+          pulse: factor * PULSE_BG_AMP,
+        });
       }
     }
   }
-
-  for (const f of state.food) {
-    ctx.fillStyle = shiftRgb(FOOD_RGB, pulseAt(f.x, f.y) * PULSE_AMP);
-    fillTile(ctx, f.x, f.y, layout);
-  }
-
-  for (let i = 0; i < state.snake.length; i++) {
-    const seg = state.snake[i];
-    const base = i === 0 ? SNAKE_HEAD_RGB : SNAKE_BODY_RGB;
-    ctx.fillStyle = shiftRgb(base, pulseAt(seg.x, seg.y) * PULSE_AMP);
-    fillTile(ctx, seg.x, seg.y, layout);
+  blocks.sort((a, b) => a.x + a.y - (b.x + b.y));
+  for (const b of blocks) {
+    drawIsoBlock(ctx, b.x, b.y, layout, b.rgb, b.lift, b.pulse);
   }
 
   ctx.fillStyle = rgbStr(accentRgb);
@@ -486,20 +532,76 @@ function addTilePath(
   ctx.closePath();
 }
 
-function fillTile(
+// Extruded iso block: top diamond face plus the two viewer-facing side faces
+// (south-east and south-west). The pulse highlight only lights the top face so
+// the side shading reads as a consistent overhead light source.
+function drawIsoBlock(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   layout: IsoLayout,
+  baseRgb: Rgb,
+  lift: number,
+  pulse: number,
 ): void {
-  const { px, py } = gridToScreen(x, y, layout);
-  // Shrink each axis by ~1px to leave a thin gap between adjacent fills, so
-  // snake body segments and grid lines stay readable.
+  const { px: cx, py: cy } = gridToScreen(x, y, layout);
   const w = Math.max(2, layout.tileW - 2);
   const h = Math.max(1, layout.tileH - 1);
+  const hw = w / 2;
+  const hh = h / 2;
+
+  // Bottom diamond (where the block meets the board) and top diamond (lifted).
+  const bRx = cx + hw;
+  const bSx = cx;
+  const bSy = cy + hh;
+  const bLx = cx - hw;
+  const tNy = cy - hh - lift;
+  const tRy = cy - lift;
+  const tSy = cy + hh - lift;
+
+  // Skip the darkened side faces when lift is sub-pixel — at the leading and
+  // trailing edges of a pulse wave they'd draw as tiny dark slivers and read
+  // as a dirty fringe instead of a smooth swell.
+  if (lift >= 1) {
+    // South-east face.
+    ctx.fillStyle = rgbStr(scaleRgb(baseRgb, SIDE_RIGHT_SHADE));
+    ctx.beginPath();
+    ctx.moveTo(bRx, cy);
+    ctx.lineTo(bRx, tRy);
+    ctx.lineTo(bSx, tSy);
+    ctx.lineTo(bSx, bSy);
+    ctx.closePath();
+    ctx.fill();
+
+    // South-west face.
+    ctx.fillStyle = rgbStr(scaleRgb(baseRgb, SIDE_LEFT_SHADE));
+    ctx.beginPath();
+    ctx.moveTo(bLx, cy);
+    ctx.lineTo(bSx, bSy);
+    ctx.lineTo(bSx, tSy);
+    ctx.lineTo(bLx, tRy);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Top face.
+  ctx.fillStyle = shiftRgb(baseRgb, pulse);
   ctx.beginPath();
-  addTilePath(ctx, px, py, w, h);
+  ctx.moveTo(cx, tNy);
+  ctx.lineTo(bRx, tRy);
+  ctx.lineTo(bSx, tSy);
+  ctx.lineTo(bLx, tRy);
+  ctx.closePath();
   ctx.fill();
+}
+
+// Block extrusion is suppressed below DEPTH_LEVEL so early levels read as a flat
+// 2D board; depth ramps in via the level-up transition's eased `t`, which makes
+// the snake, apples, and ripples visibly rise out of the tiles on entry.
+const DEPTH_LEVEL = 2;
+
+function depthForLevel(level: number): number {
+  return level >= DEPTH_LEVEL ? 1 : 0;
 }
 
 function lerp(a: number, b: number, t: number): number {
@@ -570,6 +672,10 @@ function hexToRgb(hex: string): Rgb {
     parseInt(hex.slice(3, 5), 16),
     parseInt(hex.slice(5, 7), 16),
   ];
+}
+
+function scaleRgb(rgb: Rgb, factor: number): Rgb {
+  return [rgb[0] * factor, rgb[1] * factor, rgb[2] * factor];
 }
 
 function shiftRgb(rgb: Rgb, amt: number): string {
