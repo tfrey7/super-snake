@@ -96,11 +96,15 @@ export function tickMsForLevel(level: number): number {
   return TICK_MS_BASE * Math.pow(TICK_MS_FINAL / TICK_MS_BASE, t);
 }
 
-// Standard 2:1 isometric diamond tile (Q*bert). Grid cell (x, y) projects to
+// Isometric diamond tile. Grid cell (x, y) projects to
 //   sx = originX + (x - y) * tileW/2
 //   sy = originY + (x + y) * tileH/2
-// The cols×cols grid forms a diamond inscribed in BOARD_PX horizontally; it
-// uses only BOARD_PX/2 vertically by design, leaving headroom for HUD/banner.
+// The cols×cols grid forms a diamond inscribed in BOARD_PX horizontally.
+// TILE_ASPECT controls how "steep" the view feels: 0.5 is classic Q*bert,
+// 0.577 is true 30° isometric, 1.0 would be straight top-down (45°-rotated
+// square). Higher = more head-on.
+export const TILE_ASPECT = 0.7;
+
 export type IsoLayout = {
   tileW: number;
   tileH: number;
@@ -113,7 +117,7 @@ export function isoTileWFor(cols: number): number {
 }
 
 export function isoLayoutFor(tileW: number, cols: number): IsoLayout {
-  const tileH = tileW / 2;
+  const tileH = tileW * TILE_ASPECT;
   return {
     tileW,
     tileH,

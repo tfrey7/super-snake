@@ -48,12 +48,12 @@ export function step(state: GameState): void {
   const cols = colsForLevel(state.level);
   const rows = cols;
   const head = state.snake[0];
-  const next = neighborOf(head, state.dir);
-
-  if (next.x < 0 || next.x >= cols || next.y < 0 || next.y >= rows) {
-    state.dead = true;
-    return;
-  }
+  const raw = neighborOf(head, state.dir);
+  // Pac-Man style edge wrap. Self-collision is the only way to die.
+  const next: Cell = {
+    x: (raw.x + cols) % cols,
+    y: (raw.y + rows) % rows,
+  };
   for (let i = 0; i < state.snake.length - 1; i++) {
     const seg = state.snake[i];
     if (seg.x === next.x && seg.y === next.y) {

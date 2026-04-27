@@ -46,12 +46,12 @@ const PULSE_BG_AMP = 22;
 const PULSE_BAND = 3.2;
 const PULSE_SWEEP_MS = 1800;
 
-// Each pulse is a Manhattan-distance ring expanding from a fixed grid origin.
+// Each pulse is a Chebyshev-distance ring expanding from a fixed grid origin.
 // Rings are emitted from an apple at spawn time but live independently — once
 // airborne they no longer track the apple, so eating mid-sweep can leave two
-// rings overlapping. Manhattan rings form on-grid diamonds, which project to
-// screen-space rectangles in iso (since the iso transform stretches the
-// diamond by tileW:tileH).
+// rings overlapping. Chebyshev rings form on-grid squares whose edges run
+// along the cardinal grid axes — in iso projection those edges align with
+// the diamond grid's lines, so the rings ripple outward parallel to the grid.
 type Pulse = {
   ox: number;
   oy: number;
@@ -111,7 +111,7 @@ export function draw(
     lastPulseLevel = state.level;
   }
 
-  const pulseEnabled = state.level >= 3;
+  const pulseEnabled = state.level >= 2;
   if (pulseEnabled) {
     // Pulse all fruits in unison on the downbeat — heartbeat (layer 0) fires
     // on steps 0 and 8 (beats 1 and 3); we want only step 0, the bar's
@@ -140,12 +140,12 @@ export function draw(
     for (const p of pulses) {
       const ringRadius =
         ((now - p.startMs) / PULSE_SWEEP_MS) * (p.maxRadius + PULSE_BAND);
-      const dist = Math.abs(x - p.ox) + Math.abs(y - p.oy);
+      const dist = Math.max(Math.abs(x - p.ox), Math.abs(y - p.oy));
       const d = Math.abs(dist - ringRadius);
       if (d >= PULSE_BAND) continue;
-      // Manhattan ring circumference grows ~4r; without a fade the outer rings
-      // light more cells than the inner ones and dominate the cycle visually.
-      const ringFade = 1 / (1 + ringRadius * 0.18);
+      // Chebyshev ring circumference grows ~8r; without a fade the outer rings
+      // light far more cells than the inner ones and dominate the cycle.
+      const ringFade = 1 / (1 + ringRadius * 0.28);
       total += 0.5 * (1 + Math.cos((Math.PI * d) / PULSE_BAND)) * ringFade;
     }
     return total;
@@ -444,7 +444,7 @@ function makePulse(
   cols: number,
   now: number,
 ): Pulse {
-  // Manhattan distance from the origin to the farthest board corner — how far
+  // Chebyshev distance from the origin to the farthest board corner — how far
   // the ring has to travel to fully clear the board. Computing per pulse keeps
   // the wall-clock sweep duration constant regardless of where on the board
   // the apple sat when the ring was emitted.
@@ -455,7 +455,7 @@ function makePulse(
     [0, cols - 1],
     [cols - 1, cols - 1],
   ] as const) {
-    const d = Math.abs(cx - foodX) + Math.abs(cy - foodY);
+    const d = Math.max(Math.abs(cx - foodX), Math.abs(cy - foodY));
     if (d > maxRadius) maxRadius = d;
   }
   return { ox: foodX, oy: foodY, startMs: now, maxRadius };
