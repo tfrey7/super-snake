@@ -43,8 +43,9 @@ import {
   DIR_S,
   DIR_W,
   gridToScreen,
-  isoLayout,
+  boardLayout,
   tickMsForLevel,
+  transitionTickPeak,
   type Dir,
   type GameState,
 } from './types';
@@ -310,6 +311,22 @@ canvas.addEventListener('pointercancel', (e) => endDragGesture(e, false));
 let lastTime = performance.now();
 let acc = 0;
 
+// Tick interval, scaled up (slower snake) when a level transition is mid-flight
+// and that transition tilts the projection. Half-sine envelope: full speed at
+// the start and end of the transition, peak slowdown at the midpoint, so the
+// snake decelerates and reaccelerates smoothly through the iso reveal.
+function currentTickMs(state: GameState): number {
+  const ms = tickMsForLevel(state.level);
+  if (!state.transition) return ms;
+  const peak = transitionTickPeak(
+    state.transition.fromLevel,
+    state.transition.toLevel,
+  );
+  if (peak <= 1) return ms;
+  const t = Math.min(state.transition.elapsedMs / state.transition.durationMs, 1);
+  return ms * (1 + (peak - 1) * Math.sin(Math.PI * t));
+}
+
 function frame(now: number): void {
   const dt = now - lastTime;
   lastTime = now;
@@ -330,12 +347,12 @@ function frame(now: number): void {
   // Only step gameplay while alive.
   if (!state.dead) {
     acc += dt;
-    while (acc >= tickMsForLevel(state.level)) {
-      acc -= tickMsForLevel(state.level);
+    while (acc >= currentTickMs(state)) {
+      acc -= currentTickMs(state);
       const prevScore = state.score;
       const prevDead = state.dead;
       const prevLevel = state.level;
-      const prevLayout = isoLayout(state.level);
+      const prevLayout = boardLayout(state.level);
       step(state);
       setMusicLevel(state.level);
       if (!prevDead && state.dead) {
@@ -352,7 +369,7 @@ function frame(now: number): void {
             px,
             py,
             levelFireworkColors(prevLevel),
-            prevLayout.tileW / 24,
+            prevLayout.tileBoundsW / 24,
           );
         }
       }

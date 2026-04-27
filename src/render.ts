@@ -4,13 +4,14 @@ import {
   BOARD_PX,
   LEVELS,
   applesToAdvanceFrom,
+  boardLayoutFor,
+  buildBoardLayout,
   colsForLevel,
   gridToScreen,
-  isoLayoutFor,
-  isoTileWFor,
+  projectionForLevel,
   scoreToReachLevel,
+  type BoardLayout,
   type GameState,
-  type IsoLayout,
 } from './types';
 
 const SNAKE_BODY = '#5eead4';
@@ -84,7 +85,7 @@ export function draw(
   const w = BOARD_PX;
   const h = BOARD_PX;
 
-  let layout: IsoLayout;
+  let layout: BoardLayout;
   let cols: number;
   let bgRgb: Rgb;
   let gridRgb: Rgb;
@@ -94,25 +95,41 @@ export function draw(
   if (state.transition) {
     const { fromLevel, toLevel, elapsedMs, durationMs } = state.transition;
     const t = easeOutCubic(Math.min(elapsedMs / durationMs, 1));
-    const fromCols = colsForLevel(fromLevel);
     const toCols = colsForLevel(toLevel);
     cols = toCols;
-    const tileW = lerp(isoTileWFor(fromCols), isoTileWFor(toCols), t);
-    layout = isoLayoutFor(tileW, toCols);
+    // Lerp basis vectors directly between from and to layouts. This produces
+    // a continuous deformation: rotation, aspect, and tile size all morph in
+    // lockstep, and the iso reveal at L1→L2 reads as the board tilting and
+    // squashing into shape.
+    const fromLayout = boardLayoutFor(
+      colsForLevel(fromLevel),
+      projectionForLevel(fromLevel),
+    );
+    const toLayout = boardLayoutFor(toCols, projectionForLevel(toLevel));
+    const ax = lerp(fromLayout.ax, toLayout.ax, t);
+    const ay = lerp(fromLayout.ay, toLayout.ay, t);
+    const bx = lerp(fromLayout.bx, toLayout.bx, t);
+    const by = lerp(fromLayout.by, toLayout.by, t);
+    const step = lerp(fromLayout.step, toLayout.step, t);
+    layout = buildBoardLayout(ax, ay, bx, by, toCols, step);
     const fromPal = LEVEL_PALETTE[fromLevel];
     const toPal = LEVEL_PALETTE[toLevel];
     bgRgb = lerpRgb(fromPal.bg, toPal.bg, t);
     gridRgb = lerpRgb(fromPal.grid, toPal.grid, t);
     accentRgb = lerpRgb(fromPal.accent, toPal.accent, t);
-    depth = lerp(depthForLevel(fromLevel), depthForLevel(toLevel), t);
+    depth = lerp(
+      projectionForLevel(fromLevel).depth,
+      projectionForLevel(toLevel).depth,
+      t,
+    );
   } else {
     cols = colsForLevel(state.level);
-    layout = isoLayoutFor(isoTileWFor(cols), cols);
+    layout = boardLayoutFor(cols, projectionForLevel(state.level));
     const pal = LEVEL_PALETTE[state.level];
     bgRgb = pal.bg;
     gridRgb = pal.grid;
     accentRgb = pal.accent;
-    depth = depthForLevel(state.level);
+    depth = projectionForLevel(state.level).depth;
   }
 
   ctx.fillStyle = rgbStr(bgRgb);
@@ -174,7 +191,7 @@ export function draw(
   for (let y = 0; y < cols; y++) {
     for (let x = 0; x < cols; x++) {
       const c = gridToScreen(x, y, layout);
-      addTilePath(ctx, c.px, c.py, layout.tileW, layout.tileH);
+      addTilePath(ctx, c.px, c.py, layout);
     }
   }
   ctx.stroke();
@@ -185,7 +202,7 @@ export function draw(
   // brightness shift on the top face AND a small lift, so it reads as a wave
   // rolling across the board that nudges the snake and apples upward as it
   // passes through them.
-  const fullLift = layout.tileH * BLOCK_LIFT_FRAC * depth;
+  const fullLift = layout.tileBoundsH * BLOCK_LIFT_FRAC * depth;
   const headLift = fullLift * HEAD_LIFT_RATIO;
   const bodyLift = fullLift * BODY_LIFT_RATIO;
   const pulseLiftMax = fullLift * PULSE_LIFT_RATIO;
@@ -234,7 +251,7 @@ export function draw(
   }
   blocks.sort((a, b) => a.x + a.y - (b.x + b.y));
   for (const b of blocks) {
-    drawIsoBlock(ctx, b.x, b.y, layout, b.rgb, b.lift, b.pulse);
+    drawBlock(ctx, b.x, b.y, layout, b.rgb, b.lift, b.pulse);
   }
 
   ctx.fillStyle = rgbStr(accentRgb);
@@ -514,94 +531,87 @@ function easeOutBack(t: number): number {
   return 1 + c3 * u * u * u + c1 * u * u;
 }
 
-// Iso diamond tile centered at (cx, cy), full width tileW and full height tileH.
-// Adds the polygon to the current path; caller decides whether to fill or stroke.
+// Tile outline at (cx, cy) using the layout's precomputed corner offsets.
+// Corner shape is whatever the basis projects — square at rotation 0,
+// diamond at rotation 45°, parallelogram in between.
 function addTilePath(
   ctx: CanvasRenderingContext2D,
   cx: number,
   cy: number,
-  tileW: number,
-  tileH: number,
+  layout: BoardLayout,
 ): void {
-  const hw = tileW / 2;
-  const hh = tileH / 2;
-  ctx.moveTo(cx, cy - hh);
-  ctx.lineTo(cx + hw, cy);
-  ctx.lineTo(cx, cy + hh);
-  ctx.lineTo(cx - hw, cy);
+  const corners = layout.tileCorners;
+  ctx.moveTo(cx + corners[0][0], cy + corners[0][1]);
+  ctx.lineTo(cx + corners[1][0], cy + corners[1][1]);
+  ctx.lineTo(cx + corners[2][0], cy + corners[2][1]);
+  ctx.lineTo(cx + corners[3][0], cy + corners[3][1]);
   ctx.closePath();
 }
 
-// Extruded iso block: top diamond face plus the two viewer-facing side faces
-// (south-east and south-west). The pulse highlight only lights the top face so
-// the side shading reads as a consistent overhead light source.
-function drawIsoBlock(
+// Extruded block: top face plus the viewer-facing side faces. Sides are the
+// edges whose outward normal has a positive screen-y component (i.e., that
+// face the camera). The basis fully determines this — at rotation=0 only the
+// south edge faces down, at iso both south-east and south-west do, at any
+// in-between angle whichever edges have positive ay/by show up.
+function drawBlock(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  layout: IsoLayout,
+  layout: BoardLayout,
   baseRgb: Rgb,
   lift: number,
   pulse: number,
 ): void {
   const { px: cx, py: cy } = gridToScreen(x, y, layout);
-  const w = Math.max(2, layout.tileW - 2);
-  const h = Math.max(1, layout.tileH - 1);
-  const hw = w / 2;
-  const hh = h / 2;
-
-  // Bottom diamond (where the block meets the board) and top diamond (lifted).
-  const bRx = cx + hw;
-  const bSx = cx;
-  const bSy = cy + hh;
-  const bLx = cx - hw;
-  const tNy = cy - hh - lift;
-  const tRy = cy - lift;
-  const tSy = cy + hh - lift;
+  // Inset the block by ~1px from the tile bounds so adjacent extruded
+  // segments don't merge into a continuous slab. Axis-aligned shrink in
+  // screen space — matches what the old iso draw did.
+  const sx = Math.max(0, 1 - 2 / layout.tileBoundsW);
+  const sy = Math.max(0, 1 - 1 / layout.tileBoundsH);
+  const raw = layout.tileCorners;
+  const corners: Array<readonly [number, number]> = [
+    [raw[0][0] * sx, raw[0][1] * sy],
+    [raw[1][0] * sx, raw[1][1] * sy],
+    [raw[2][0] * sx, raw[2][1] * sy],
+    [raw[3][0] * sx, raw[3][1] * sy],
+  ];
 
   // Skip the darkened side faces when lift is sub-pixel — at the leading and
   // trailing edges of a pulse wave they'd draw as tiny dark slivers and read
   // as a dirty fringe instead of a smooth swell.
   if (lift >= 1) {
-    // South-east face.
-    ctx.fillStyle = rgbStr(scaleRgb(baseRgb, SIDE_RIGHT_SHADE));
-    ctx.beginPath();
-    ctx.moveTo(bRx, cy);
-    ctx.lineTo(bRx, tRy);
-    ctx.lineTo(bSx, tSy);
-    ctx.lineTo(bSx, bSy);
-    ctx.closePath();
-    ctx.fill();
-
-    // South-west face.
-    ctx.fillStyle = rgbStr(scaleRgb(baseRgb, SIDE_LEFT_SHADE));
-    ctx.beginPath();
-    ctx.moveTo(bLx, cy);
-    ctx.lineTo(bSx, bSy);
-    ctx.lineTo(bSx, tSy);
-    ctx.lineTo(bLx, tRy);
-    ctx.closePath();
-    ctx.fill();
+    // The four edges of the tile in CCW corner order. For each, decide if the
+    // outward normal points down on screen (visible). The midpoint of an edge
+    // relative to the tile center is its outward direction.
+    for (let i = 0; i < 4; i++) {
+      const a = corners[i];
+      const b = corners[(i + 1) % 4];
+      const midY = (a[1] + b[1]) / 2;
+      if (midY <= 0) continue;
+      const midX = (a[0] + b[0]) / 2;
+      // Brighter when the face leans right of center, darker when left, so
+      // the shading reads as a consistent overhead-from-the-right light.
+      const shade = midX >= 0 ? SIDE_RIGHT_SHADE : SIDE_LEFT_SHADE;
+      ctx.fillStyle = rgbStr(scaleRgb(baseRgb, shade));
+      ctx.beginPath();
+      ctx.moveTo(cx + a[0], cy + a[1]);
+      ctx.lineTo(cx + b[0], cy + b[1]);
+      ctx.lineTo(cx + b[0], cy + b[1] - lift);
+      ctx.lineTo(cx + a[0], cy + a[1] - lift);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 
-  // Top face.
+  // Top face — same shape as the bottom, lifted by `lift` pixels.
   ctx.fillStyle = shiftRgb(baseRgb, pulse);
   ctx.beginPath();
-  ctx.moveTo(cx, tNy);
-  ctx.lineTo(bRx, tRy);
-  ctx.lineTo(bSx, tSy);
-  ctx.lineTo(bLx, tRy);
+  ctx.moveTo(cx + corners[0][0], cy + corners[0][1] - lift);
+  ctx.lineTo(cx + corners[1][0], cy + corners[1][1] - lift);
+  ctx.lineTo(cx + corners[2][0], cy + corners[2][1] - lift);
+  ctx.lineTo(cx + corners[3][0], cy + corners[3][1] - lift);
   ctx.closePath();
   ctx.fill();
-}
-
-// Block extrusion is suppressed below DEPTH_LEVEL so early levels read as a flat
-// 2D board; depth ramps in via the level-up transition's eased `t`, which makes
-// the snake, apples, and ripples visibly rise out of the tiles on entry.
-const DEPTH_LEVEL = 2;
-
-function depthForLevel(level: number): number {
-  return level >= DEPTH_LEVEL ? 1 : 0;
 }
 
 function lerp(a: number, b: number, t: number): number {

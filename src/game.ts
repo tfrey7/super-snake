@@ -1,7 +1,7 @@
 import {
   DIR_E,
   INITIAL_LENGTH,
-  TRANSITION_MS,
+  transitionDurationFor,
   colsForLevel,
   levelForScore,
   neighborOf,
@@ -92,7 +92,7 @@ function advanceLevelIfNeeded(state: GameState): void {
     fromLevel,
     toLevel: target,
     elapsedMs: 0,
-    durationMs: TRANSITION_MS,
+    durationMs: transitionDurationFor(fromLevel, target),
   };
 }
 

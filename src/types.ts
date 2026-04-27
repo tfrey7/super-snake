@@ -96,48 +96,155 @@ export function tickMsForLevel(level: number): number {
   return TICK_MS_BASE * Math.pow(TICK_MS_FINAL / TICK_MS_BASE, t);
 }
 
-// Isometric diamond tile. Grid cell (x, y) projects to
-//   sx = originX + (x - y) * tileW/2
-//   sy = originY + (x + y) * tileH/2
-// The cols×cols grid forms a diamond inscribed in BOARD_PX horizontally.
-// TILE_ASPECT controls how "steep" the view feels: 0.5 is classic Q*bert,
-// 0.577 is true 30° isometric, 1.0 would be straight top-down (45°-rotated
-// square). Higher = more head-on.
-export const TILE_ASPECT = 0.7;
-
-export type IsoLayout = {
-  tileW: number;
-  tileH: number;
+// Generalized 2D-basis projection. A grid cell (x, y) projects to
+//   sx = originX + x*ax + y*bx
+//   sy = originY + x*ay + y*by
+// The (ax, ay) and (bx, by) basis vectors fully describe rotation, shear,
+// non-uniform scale, and aspect squash. Two named knobs drive them:
+//   rotation — angle the unit grid is rotated by before squashing.
+//   aspect   — screen-y squash (1 = top-down square; <1 = isometric squat).
+// Step is solved per-level so the grid bounding box always fills BOARD_PX
+// horizontally regardless of rotation, so the board doesn't change size as
+// the angle shifts.
+export type BoardLayout = {
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
   originX: number;
   originY: number;
+  step: number;
+  // Screen-space bounding box of one tile. Useful for sizing things scaled to
+  // a tile (block lift, firework radius, etc.) without re-deriving from basis.
+  tileBoundsW: number;
+  tileBoundsH: number;
+  // Four corner offsets relative to a tile center, in screen pixels, in CCW
+  // order starting from grid (-x, -y). Precomputed so tile drawing doesn't
+  // re-project the same constants per tile per frame.
+  tileCorners: ReadonlyArray<readonly [number, number]>;
 };
 
-export function isoTileWFor(cols: number): number {
-  return BOARD_PX / cols;
+// Projection per level. Depth controls block extrusion strength (0..1) and
+// lives here too so rotation/aspect/depth ramp together as one move.
+export type LevelProjection = {
+  rotation: number;
+  aspect: number;
+  depth: number;
+};
+
+const PROJ_FLAT: LevelProjection = { rotation: 0, aspect: 1, depth: 0 };
+const PROJ_ISO_FLAT: LevelProjection = {
+  rotation: Math.PI / 4,
+  aspect: 0.7,
+  depth: 0,
+};
+const PROJ_ISO: LevelProjection = {
+  rotation: Math.PI / 4,
+  aspect: 0.7,
+  depth: 1,
+};
+
+// Phased reveal: levels 0–2 read as classic top-down snake. Level 3 tilts the
+// board into iso (still no extrusion). Level 4 adds the height — splitting
+// the iso reveal across two level-ups keeps each surprise distinct rather
+// than throwing both visual changes at the player at once.
+export function projectionForLevel(level: number): LevelProjection {
+  const n = clampLevel(level);
+  if (n >= 4) return PROJ_ISO;
+  if (n === 3) return PROJ_ISO_FLAT;
+  return PROJ_FLAT;
 }
 
-export function isoLayoutFor(tileW: number, cols: number): IsoLayout {
-  const tileH = tileW * TILE_ASPECT;
+// During a level-up where rotation changes, lengthen the transition window
+// so the tilt is given room to read instead of flicking by in 600ms.
+export const REVEAL_TRANSITION_MS = 1500;
+
+export function transitionDurationFor(
+  fromLevel: number,
+  toLevel: number,
+): number {
+  const from = projectionForLevel(fromLevel);
+  const to = projectionForLevel(toLevel);
+  return from.rotation !== to.rotation ? REVEAL_TRANSITION_MS : TRANSITION_MS;
+}
+
+// Peak slowdown multiplier applied to the tick interval at the midpoint of
+// the transition. A peak of 2.6 means the snake moves at ~38% of its normal
+// speed at the apex of the iso reveal, then ramps back up. Returns 1 (no
+// slowdown) for transitions that don't visibly tilt the board.
+export function transitionTickPeak(
+  fromLevel: number,
+  toLevel: number,
+): number {
+  const from = projectionForLevel(fromLevel);
+  const to = projectionForLevel(toLevel);
+  return from.rotation !== to.rotation ? 2.6 : 1;
+}
+
+// Build a layout from raw basis vectors centered on a cols×cols grid. Used
+// directly during a level transition — we lerp the basis vectors between the
+// from-layout and to-layout and rebuild around the integer toCols.
+export function buildBoardLayout(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cols: number,
+  step: number,
+): BoardLayout {
+  const half = (cols - 1) / 2;
+  const originX = BOARD_PX / 2 - half * (ax + bx);
+  const originY = BOARD_PX / 2 - half * (ay + by);
+  const tileBoundsW = Math.abs(ax) + Math.abs(bx);
+  const tileBoundsH = Math.abs(ay) + Math.abs(by);
+  const tileCorners: ReadonlyArray<readonly [number, number]> = [
+    [-0.5 * ax - 0.5 * bx, -0.5 * ay - 0.5 * by],
+    [+0.5 * ax - 0.5 * bx, +0.5 * ay - 0.5 * by],
+    [+0.5 * ax + 0.5 * bx, +0.5 * ay + 0.5 * by],
+    [-0.5 * ax + 0.5 * bx, -0.5 * ay + 0.5 * by],
+  ];
   return {
-    tileW,
-    tileH,
-    originX: BOARD_PX / 2,
-    originY: BOARD_PX / 2 - ((cols - 1) * tileH) / 2,
+    ax,
+    ay,
+    bx,
+    by,
+    originX,
+    originY,
+    step,
+    tileBoundsW,
+    tileBoundsH,
+    tileCorners,
   };
 }
 
-export function isoLayout(level: number): IsoLayout {
-  const cols = colsForLevel(level);
-  return isoLayoutFor(isoTileWFor(cols), cols);
+export function boardLayoutFor(
+  cols: number,
+  projection: LevelProjection,
+): BoardLayout {
+  const c = Math.cos(projection.rotation);
+  const s = Math.sin(projection.rotation);
+  // Solve step so the tile bounding-box widths sum to BOARD_PX. tileBoundsW
+  // = step * (|cos| + |sin|), so step shrinks at 45° to keep the diamond from
+  // overflowing the canvas.
+  const step = BOARD_PX / (cols * (Math.abs(c) + Math.abs(s)));
+  const ax = step * c;
+  const ay = step * s * projection.aspect;
+  const bx = -step * s;
+  const by = step * c * projection.aspect;
+  return buildBoardLayout(ax, ay, bx, by, cols, step);
+}
+
+export function boardLayout(level: number): BoardLayout {
+  return boardLayoutFor(colsForLevel(level), projectionForLevel(level));
 }
 
 export function gridToScreen(
   x: number,
   y: number,
-  layout: IsoLayout,
+  layout: BoardLayout,
 ): { px: number; py: number } {
   return {
-    px: layout.originX + (x - y) * (layout.tileW / 2),
-    py: layout.originY + (x + y) * (layout.tileH / 2),
+    px: layout.originX + x * layout.ax + y * layout.bx,
+    py: layout.originY + x * layout.ay + y * layout.by,
   };
 }
