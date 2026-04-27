@@ -1,42 +1,26 @@
 export type Cell = { x: number; y: number };
 
-// Pointy-top hex directions, indexed 0..5 around the hex.
-// E, NE, NW, W, SW, SE — opposite pairs are (d, d+3) mod 6.
-export type Dir = 0 | 1 | 2 | 3 | 4 | 5;
-export const DIR_E: Dir = 0;
-export const DIR_NE: Dir = 1;
-export const DIR_NW: Dir = 2;
+// 4-cardinal directions, indexed clockwise from north.
+export type Dir = 0 | 1 | 2 | 3;
+export const DIR_N: Dir = 0;
+export const DIR_E: Dir = 1;
+export const DIR_S: Dir = 2;
 export const DIR_W: Dir = 3;
-export const DIR_SW: Dir = 4;
-export const DIR_SE: Dir = 5;
 
-// odd-r offset coords: odd rows are visually shifted right by half a hex width,
-// so the cell-coord neighbor offsets depend on row parity.
-const NEIGHBORS_EVEN: ReadonlyArray<readonly [number, number]> = [
-  [+1, 0],
-  [0, -1],
-  [-1, -1],
-  [-1, 0],
-  [-1, +1],
-  [0, +1],
-];
-const NEIGHBORS_ODD: ReadonlyArray<readonly [number, number]> = [
-  [+1, 0],
-  [+1, -1],
-  [0, -1],
-  [-1, 0],
-  [0, +1],
-  [+1, +1],
+const NEIGHBORS: ReadonlyArray<readonly [number, number]> = [
+  [0, -1], // N
+  [+1, 0], // E
+  [0, +1], // S
+  [-1, 0], // W
 ];
 
 export function neighborOf(cell: Cell, dir: Dir): Cell {
-  const table = cell.y & 1 ? NEIGHBORS_ODD : NEIGHBORS_EVEN;
-  const [dx, dy] = table[dir];
+  const [dx, dy] = NEIGHBORS[dir];
   return { x: cell.x + dx, y: cell.y + dy };
 }
 
 export function oppositeDir(dir: Dir): Dir {
-  return ((dir + 3) % 6) as Dir;
+  return ((dir + 2) % 4) as Dir;
 }
 
 export type Transition = {
@@ -112,57 +96,44 @@ export function tickMsForLevel(level: number): number {
   return TICK_MS_BASE * Math.pow(TICK_MS_FINAL / TICK_MS_BASE, t);
 }
 
-export const SQRT3 = Math.sqrt(3);
-
-export type HexLayout = {
-  size: number;
-  width: number;
-  rowStep: number;
+// Standard 2:1 isometric diamond tile (Q*bert). Grid cell (x, y) projects to
+//   sx = originX + (x - y) * tileW/2
+//   sy = originY + (x + y) * tileH/2
+// The cols×cols grid forms a diamond inscribed in BOARD_PX horizontally; it
+// uses only BOARD_PX/2 vertically by design, leaving headroom for HUD/banner.
+export type IsoLayout = {
+  tileW: number;
+  tileH: number;
   originX: number;
   originY: number;
 };
 
-// Pointy-top hex circumradius sized so a cols×cols odd-r grid fits BOARD_PX.
-// Width packs as sqrt(3)*size per col plus a half-hex for the odd-row shift,
-// so the width constraint dominates for square grids and we letterbox vertically.
-export function hexSizeFor(cols: number): number {
-  const sizeFromWidth = BOARD_PX / (SQRT3 * (cols + 0.5));
-  const sizeFromHeight = BOARD_PX / (1.5 * cols + 0.5);
-  return Math.min(sizeFromWidth, sizeFromHeight);
+export function isoTileWFor(cols: number): number {
+  return BOARD_PX / cols;
 }
 
-export function hexSize(level: number): number {
-  return hexSizeFor(colsForLevel(level));
-}
-
-export function hexLayoutFor(size: number, cols: number): HexLayout {
-  const width = SQRT3 * size;
-  const rowStep = 1.5 * size;
-  const gridWidth = width * cols + width / 2;
-  const gridHeight = rowStep * (cols - 1) + 2 * size;
-  const padX = (BOARD_PX - gridWidth) / 2;
-  const padY = (BOARD_PX - gridHeight) / 2;
+export function isoLayoutFor(tileW: number, cols: number): IsoLayout {
+  const tileH = tileW / 2;
   return {
-    size,
-    width,
-    rowStep,
-    originX: padX + width / 2,
-    originY: padY + size,
+    tileW,
+    tileH,
+    originX: BOARD_PX / 2,
+    originY: BOARD_PX / 2 - ((cols - 1) * tileH) / 2,
   };
 }
 
-export function hexLayout(level: number): HexLayout {
-  return hexLayoutFor(hexSize(level), colsForLevel(level));
+export function isoLayout(level: number): IsoLayout {
+  const cols = colsForLevel(level);
+  return isoLayoutFor(isoTileWFor(cols), cols);
 }
 
-export function hexCenter(
+export function gridToScreen(
   x: number,
   y: number,
-  layout: HexLayout,
+  layout: IsoLayout,
 ): { px: number; py: number } {
-  const xOffset = y & 1 ? layout.width / 2 : 0;
   return {
-    px: layout.originX + x * layout.width + xOffset,
-    py: layout.originY + y * layout.rowStep,
+    px: layout.originX + (x - y) * (layout.tileW / 2),
+    py: layout.originY + (x + y) * (layout.tileH / 2),
   };
 }

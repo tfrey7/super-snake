@@ -39,13 +39,11 @@ import { drawTitle } from './title';
 import {
   BOARD_PX,
   DIR_E,
-  DIR_NE,
-  DIR_NW,
-  DIR_SE,
-  DIR_SW,
+  DIR_N,
+  DIR_S,
   DIR_W,
-  hexCenter,
-  hexLayout,
+  gridToScreen,
+  isoLayout,
   tickMsForLevel,
   type Dir,
   type GameState,
@@ -110,23 +108,19 @@ function cycleLetter(ch: string, delta: number): string {
   return String.fromCharCode(A + idx);
 }
 
-// Pointy-top hex direction angles in canvas coords (y-down):
-//   E=0°, SE=60°, SW=120°, W=180°, NW=240°, NE=300°.
-// Bucket boundaries sit at 30° + 60°·k, so a swipe at angle θ maps to bucket
-// floor((θ + 30) / 60) mod 6, and bucket → Dir uses this lookup.
-const SWIPE_BUCKET_TO_DIR: Dir[] = [
-  DIR_E,
-  DIR_SE,
-  DIR_SW,
-  DIR_W,
-  DIR_NW,
-  DIR_NE,
-];
+// In iso projection each grid direction maps to one screen diagonal:
+//   DIR_N (-y) → up-right (-45°)
+//   DIR_E (+x) → down-right (+45°)
+//   DIR_S (+y) → down-left (+135°)
+//   DIR_W (-x) → up-left (-135°)
+// Wedges are 90° wide centered on those diagonals, so a horizontal swipe
+// (angle 0°) sits on the boundary and resolves to DIR_E, etc.
+const SWIPE_BUCKET_TO_DIR: Dir[] = [DIR_N, DIR_E, DIR_S, DIR_W];
 
-function swipeToHexDir(dx: number, dy: number): Dir {
+function swipeToDir(dx: number, dy: number): Dir {
   const deg = (Math.atan2(dy, dx) * 180) / Math.PI;
-  const norm = (deg + 360) % 360;
-  const bucket = Math.floor((norm + 30) / 60) % 6;
+  const norm = (deg + 90 + 360) % 360;
+  const bucket = Math.floor(norm / 90) % 4;
   return SWIPE_BUCKET_TO_DIR[bucket];
 }
 
@@ -198,6 +192,20 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
+
+  // Arrow keys steer during play. Each arrow maps to one grid axis; in iso
+  // those axes project to the four diagonals (clockwise from up-right).
+  if (phase === 'playing' || phase === 'transitioning') {
+    let dir: Dir | null = null;
+    if (e.code === 'ArrowUp') dir = DIR_N;
+    else if (e.code === 'ArrowRight') dir = DIR_E;
+    else if (e.code === 'ArrowDown') dir = DIR_S;
+    else if (e.code === 'ArrowLeft') dir = DIR_W;
+    if (dir !== null) {
+      setNextDir(state, dir);
+      e.preventDefault();
+    }
+  }
 });
 
 const SWIPE_THRESHOLD_PX = 20;
@@ -239,7 +247,7 @@ function handleSwipe(dx: number, dy: number): void {
 
   if (phase === 'death-pause') return;
 
-  setNextDir(state, swipeToHexDir(dx, dy));
+  setNextDir(state, swipeToDir(dx, dy));
 }
 
 function applyTap(): void {
@@ -327,7 +335,7 @@ function frame(now: number): void {
       const prevScore = state.score;
       const prevDead = state.dead;
       const prevLevel = state.level;
-      const prevLayout = hexLayout(state.level);
+      const prevLayout = isoLayout(state.level);
       step(state);
       setMusicLevel(state.level);
       if (!prevDead && state.dead) {
@@ -339,12 +347,12 @@ function frame(now: number): void {
         playEat();
         if (prevLevel >= 3) {
           const head = state.snake[0];
-          const { px, py } = hexCenter(head.x, head.y, prevLayout);
+          const { px, py } = gridToScreen(head.x, head.y, prevLayout);
           spawnFireworks(
             px,
             py,
             levelFireworkColors(prevLevel),
-            prevLayout.width / 24,
+            prevLayout.tileW / 24,
           );
         }
       }

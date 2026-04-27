@@ -5,12 +5,12 @@ import {
   LEVELS,
   applesToAdvanceFrom,
   colsForLevel,
-  hexCenter,
-  hexLayoutFor,
-  hexSizeFor,
+  gridToScreen,
+  isoLayoutFor,
+  isoTileWFor,
   scoreToReachLevel,
   type GameState,
-  type HexLayout,
+  type IsoLayout,
 } from './types';
 
 const SNAKE_BODY = '#5eead4';
@@ -46,13 +46,15 @@ const PULSE_BG_AMP = 22;
 const PULSE_BAND = 3.2;
 const PULSE_SWEEP_MS = 1800;
 
-// Each pulse is a hex ring expanding from a fixed origin. Rings are emitted
-// from the apple at spawn time but live independently — once airborne they no
-// longer track the apple, so eating mid-sweep can leave two rings overlapping.
+// Each pulse is a Manhattan-distance ring expanding from a fixed grid origin.
+// Rings are emitted from an apple at spawn time but live independently — once
+// airborne they no longer track the apple, so eating mid-sweep can leave two
+// rings overlapping. Manhattan rings form on-grid diamonds, which project to
+// screen-space rectangles in iso (since the iso transform stretches the
+// diamond by tileW:tileH).
 type Pulse = {
-  cqx: number;
-  cqy: number;
-  cqz: number;
+  ox: number;
+  oy: number;
   startMs: number;
   maxRadius: number;
 };
@@ -70,7 +72,7 @@ export function draw(
   const w = BOARD_PX;
   const h = BOARD_PX;
 
-  let layout: HexLayout;
+  let layout: IsoLayout;
   let cols: number;
   let bgRgb: Rgb;
   let gridRgb: Rgb;
@@ -82,8 +84,8 @@ export function draw(
     const fromCols = colsForLevel(fromLevel);
     const toCols = colsForLevel(toLevel);
     cols = toCols;
-    const size = lerp(hexSizeFor(fromCols), hexSizeFor(toCols), t);
-    layout = hexLayoutFor(size, toCols);
+    const tileW = lerp(isoTileWFor(fromCols), isoTileWFor(toCols), t);
+    layout = isoLayoutFor(tileW, toCols);
     const fromPal = LEVEL_PALETTE[fromLevel];
     const toPal = LEVEL_PALETTE[toLevel];
     bgRgb = lerpRgb(fromPal.bg, toPal.bg, t);
@@ -91,7 +93,7 @@ export function draw(
     accentRgb = lerpRgb(fromPal.accent, toPal.accent, t);
   } else {
     cols = colsForLevel(state.level);
-    layout = hexLayoutFor(hexSizeFor(cols), cols);
+    layout = isoLayoutFor(isoTileWFor(cols), cols);
     const pal = LEVEL_PALETTE[state.level];
     bgRgb = pal.bg;
     gridRgb = pal.grid;
@@ -101,8 +103,8 @@ export function draw(
   ctx.fillStyle = rgbStr(bgRgb);
   ctx.fillRect(0, 0, w, h);
 
-  // Reset pulses across level changes — origins are offset coords, which map
-  // to a different hex on a different-sized grid.
+  // Reset pulses across level changes — board size changes so origins and
+  // maxRadius would be stale.
   if (state.level !== lastPulseLevel) {
     pulses = [];
     lastHeartbeatMs = -Infinity;
@@ -134,37 +136,30 @@ export function draw(
 
   const pulseAt = (x: number, y: number): number => {
     if (pulses.length === 0) return 0;
-    const ax = x - (y - (y & 1)) / 2;
-    const az = y;
-    const ay = -ax - az;
     let total = 0;
     for (const p of pulses) {
       const ringRadius =
         ((now - p.startMs) / PULSE_SWEEP_MS) * (p.maxRadius + PULSE_BAND);
-      const dist =
-        (Math.abs(ax - p.cqx) +
-          Math.abs(ay - p.cqy) +
-          Math.abs(az - p.cqz)) /
-        2;
+      const dist = Math.abs(x - p.ox) + Math.abs(y - p.oy);
       const d = Math.abs(dist - ringRadius);
       if (d >= PULSE_BAND) continue;
-      // Ring circumference grows ~6r, so without a fade outer rings light far
-      // more cells than the inner pulses and dominate the cycle visually.
-      const ringFade = 1 / (1 + ringRadius * 0.2);
+      // Manhattan ring circumference grows ~4r; without a fade the outer rings
+      // light more cells than the inner ones and dominate the cycle visually.
+      const ringFade = 1 / (1 + ringRadius * 0.18);
       total += 0.5 * (1 + Math.cos((Math.PI * d) / PULSE_BAND)) * ringFade;
     }
     return total;
   };
 
-  // Hex grid outlines, batched into one path. Interior edges are stroked twice
-  // (once per neighboring hex), but it's cheap and the second stroke is identical.
+  // Tile outlines, batched into one path. Adjacent tiles share edges which get
+  // stroked twice — cheap and visually identical.
   ctx.strokeStyle = rgbStr(gridRgb);
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let y = 0; y < cols; y++) {
     for (let x = 0; x < cols; x++) {
-      const c = hexCenter(x, y, layout);
-      addHexPath(ctx, c.px, c.py, layout.size);
+      const c = gridToScreen(x, y, layout);
+      addTilePath(ctx, c.px, c.py, layout.tileW, layout.tileH);
     }
   }
   ctx.stroke();
@@ -179,21 +174,21 @@ export function draw(
         const factor = pulseAt(x, y);
         if (factor <= 0) continue;
         ctx.fillStyle = shiftRgb(bgRgb, factor * PULSE_BG_AMP);
-        fillHex(ctx, x, y, layout);
+        fillTile(ctx, x, y, layout);
       }
     }
   }
 
   for (const f of state.food) {
     ctx.fillStyle = shiftRgb(FOOD_RGB, pulseAt(f.x, f.y) * PULSE_AMP);
-    fillHex(ctx, f.x, f.y, layout);
+    fillTile(ctx, f.x, f.y, layout);
   }
 
   for (let i = 0; i < state.snake.length; i++) {
     const seg = state.snake[i];
     const base = i === 0 ? SNAKE_HEAD_RGB : SNAKE_BODY_RGB;
     ctx.fillStyle = shiftRgb(base, pulseAt(seg.x, seg.y) * PULSE_AMP);
-    fillHex(ctx, seg.x, seg.y, layout);
+    fillTile(ctx, seg.x, seg.y, layout);
   }
 
   ctx.fillStyle = rgbStr(accentRgb);
@@ -449,13 +444,10 @@ function makePulse(
   cols: number,
   now: number,
 ): Pulse {
-  const cqx = foodX - (foodY - (foodY & 1)) / 2;
-  const cqz = foodY;
-  const cqy = -cqx - cqz;
-  // Cube distance from the origin to each board corner — the largest one is
-  // how far the ring has to travel to fully clear the board. Using this per
-  // pulse keeps the wall-clock sweep duration constant regardless of where on
-  // the board the apple sat when the ring was emitted.
+  // Manhattan distance from the origin to the farthest board corner — how far
+  // the ring has to travel to fully clear the board. Computing per pulse keeps
+  // the wall-clock sweep duration constant regardless of where on the board
+  // the apple sat when the ring was emitted.
   let maxRadius = 0;
   for (const [cx, cy] of [
     [0, 0],
@@ -463,14 +455,10 @@ function makePulse(
     [0, cols - 1],
     [cols - 1, cols - 1],
   ] as const) {
-    const ax = cx - (cy - (cy & 1)) / 2;
-    const az = cy;
-    const ay = -ax - az;
-    const d =
-      (Math.abs(ax - cqx) + Math.abs(ay - cqy) + Math.abs(az - cqz)) / 2;
+    const d = Math.abs(cx - foodX) + Math.abs(cy - foodY);
     if (d > maxRadius) maxRadius = d;
   }
-  return { cqx, cqy, cqz, startMs: now, maxRadius };
+  return { ox: foodX, oy: foodY, startMs: now, maxRadius };
 }
 
 function easeOutBack(t: number): number {
@@ -480,34 +468,37 @@ function easeOutBack(t: number): number {
   return 1 + c3 * u * u * u + c1 * u * u;
 }
 
-// Pointy-top hex with vertices at canvas angles -90°, -30°, 30°, 90°, 150°, 210°.
+// Iso diamond tile centered at (cx, cy), full width tileW and full height tileH.
 // Adds the polygon to the current path; caller decides whether to fill or stroke.
-function addHexPath(
+function addTilePath(
   ctx: CanvasRenderingContext2D,
   cx: number,
   cy: number,
-  r: number,
+  tileW: number,
+  tileH: number,
 ): void {
-  for (let i = 0; i < 6; i++) {
-    const a = -Math.PI / 2 + (i * Math.PI) / 3;
-    const x = cx + r * Math.cos(a);
-    const y = cy + r * Math.sin(a);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
+  const hw = tileW / 2;
+  const hh = tileH / 2;
+  ctx.moveTo(cx, cy - hh);
+  ctx.lineTo(cx + hw, cy);
+  ctx.lineTo(cx, cy + hh);
+  ctx.lineTo(cx - hw, cy);
   ctx.closePath();
 }
 
-function fillHex(
+function fillTile(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  layout: HexLayout,
-  inset = 1,
+  layout: IsoLayout,
 ): void {
-  const { px, py } = hexCenter(x, y, layout);
+  const { px, py } = gridToScreen(x, y, layout);
+  // Shrink each axis by ~1px to leave a thin gap between adjacent fills, so
+  // snake body segments and grid lines stay readable.
+  const w = Math.max(2, layout.tileW - 2);
+  const h = Math.max(1, layout.tileH - 1);
   ctx.beginPath();
-  addHexPath(ctx, px, py, layout.size - inset);
+  addTilePath(ctx, px, py, w, h);
   ctx.fill();
 }
 
