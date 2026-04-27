@@ -76,6 +76,7 @@ function frame(now: number): void {
       spawnFireworks(
         foodX * prevCell + prevCell / 2,
         foodY * prevCell + prevCell / 2,
+        prevCell / 24,
       );
     }
   }

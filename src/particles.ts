@@ -21,11 +21,11 @@ const COLORS = [
   '#60a5fa',
 ];
 
-export function spawnFireworks(cx: number, cy: number): void {
+export function spawnFireworks(cx: number, cy: number, scale = 1): void {
   const count = 40;
   for (let i = 0; i < count; i++) {
     const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.3;
-    const speed = 70 + Math.random() * 120;
+    const speed = (70 + Math.random() * 120) * scale;
     const life = 500 + Math.random() * 500;
     particles.push({
       x: cx,
@@ -35,12 +35,12 @@ export function spawnFireworks(cx: number, cy: number): void {
       life,
       maxLife: life,
       color: COLORS[Math.floor(Math.random() * COLORS.length)],
-      size: 2 + Math.floor(Math.random() * 3),
+      size: (2 + Math.random() * 3) * scale,
     });
   }
   for (let i = 0; i < 12; i++) {
     const angle = Math.random() * Math.PI * 2;
-    const speed = 20 + Math.random() * 50;
+    const speed = (20 + Math.random() * 50) * scale;
     const life = 700 + Math.random() * 600;
     particles.push({
       x: cx,
@@ -50,7 +50,7 @@ export function spawnFireworks(cx: number, cy: number): void {
       life,
       maxLife: life,
       color: '#ffffff',
-      size: 1 + Math.floor(Math.random() * 2),
+      size: (1 + Math.random() * 2) * scale,
     });
   }
 }
