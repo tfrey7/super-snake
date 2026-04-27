@@ -93,19 +93,23 @@ const SCHED_LOOKAHEAD_S = 0.12;
 
 // 4-bar progression in A natural minor / C major: Am - F - C - G.
 // Each pattern is indexed [bar][step]; `null` = rest.
+// Bass pattern: low root on the downbeat, octave-up on beat 2 for the pop
+// "bounce" you hear under 80s ballad choruses, then a walk through chord
+// tones into the next bar. The octave skip is what turns a sleepy chord-root
+// bassline into a driving foundation.
 const BASS: (number | null)[][] = [
-  // Am: A2, low E2, walk via G2
-  [110, null, null, null, 110, null, null, null,
-   82.41, null, null, null, 98, null, 110, null],
-  // F: F2, low C2, walk via E2
-  [87.31, null, null, null, 87.31, null, null, null,
-   65.41, null, null, null, 82.41, null, 87.31, null],
-  // C: C3, low G2, walk via A2
-  [130.81, null, null, null, 130.81, null, null, null,
-   98, null, null, null, 110, null, 130.81, null],
-  // G: G2, low D2, walk via F2
-  [98, null, null, null, 98, null, null, null,
-   73.42, null, null, null, 87.31, null, 98, null],
+  // Am: A2 — A3 — E2 — G2 — A3 (oct pickup)
+  [110, null, null, null, 220, null, null, null,
+   82.41, null, null, null, 98, null, 220, null],
+  // F: F2 — F3 — C2 — E2 — F3
+  [87.31, null, null, null, 174.61, null, null, null,
+   65.41, null, null, null, 82.41, null, 174.61, null],
+  // C: C3 — C4 — G2 — A2 — C4
+  [130.81, null, null, null, 261.63, null, null, null,
+   98, null, null, null, 110, null, 261.63, null],
+  // G: G2 — G3 — D2 — F2 — G3
+  [98, null, null, null, 196, null, null, null,
+   73.42, null, null, null, 87.31, null, 196, null],
 ];
 const LEAD: (number | null)[][] = [
   // Am: A C E D | C B A E
@@ -151,6 +155,42 @@ const CHORDS: number[][] = [
   [174.61, 220, 261.63], // F:  F3 A3 C4
   [261.63, 329.63, 392], // C:  C4 E4 G4
   [196, 246.94, 293.66], // G:  G3 B3 D4
+];
+
+// Counter-melody hook. Our progression Am-F-C-G shares its chord set with
+// the I-V-vi-IV pop progression behind countless 80s ballads, and a
+// pickup-and-hold contour over the C and G bars sits naturally on top.
+// Pickup eighths into 5 main notes with a held tail — vocal-shaped phrasing,
+// not flat 8th-note sequencing.
+type RickNote = { freq: number; durSteps: number };
+const RICK_LEAD: (RickNote | null)[][] = [
+  // Am — rest
+  Array(STEPS_PER_BAR).fill(null),
+  // F — pickup into phrase 1: "Ne-ver" on the and-of-3 / and-of-4
+  [
+    null, null, null, null, null, null, null, null,
+    null, null, null, null,
+    { freq: 392, durSteps: 2 }, null,
+    { freq: 392, durSteps: 2 }, null,
+  ],
+  // C — "gon-na give you up" + pickup into phrase 2 at end of bar
+  [
+    { freq: 440, durSteps: 2 }, null,
+    { freq: 523.25, durSteps: 2 }, null,
+    { freq: 523.25, durSteps: 2 }, null,
+    { freq: 493.88, durSteps: 2 }, null,
+    { freq: 523.25, durSteps: 4 }, null, null, null, // held "up"
+    { freq: 392, durSteps: 2 }, null,
+    { freq: 392, durSteps: 2 }, null,
+  ],
+  // G — "gon-na let you down" with held tail
+  [
+    { freq: 440, durSteps: 2 }, null,
+    { freq: 523.25, durSteps: 2 }, null,
+    { freq: 523.25, durSteps: 2 }, null,
+    { freq: 392, durSteps: 2 }, null,
+    { freq: 349.23, durSteps: 8 }, null, null, null, null, null, null, null,
+  ],
 ];
 
 let musicMaster: GainNode | null = null;
@@ -230,12 +270,73 @@ function playNoise(
 }
 
 function playSnare(ac: AudioContext, dest: AudioNode, time: number): void {
-  playNoise(ac, dest, time, 0.13, 0.55, 1500);
+  // Snap + tonal body for the initial transient.
+  playNoise(ac, dest, time, 0.06, 0.6, 1800);
   playOsc(ac, dest, 200, time, 0.08, 'triangle', 0.3, 0.002);
+  // Gated-reverb tail: bandpassed noise sustains, then cuts hard. That abrupt
+  // chop is the iconic "Phil Collins / 80s ballad" snare that sells the genre.
+  const len = Math.floor(ac.sampleRate * 0.2);
+  const buf = ac.createBuffer(1, len, ac.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  const filter = ac.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 2400;
+  filter.Q.value = 0.7;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0, time);
+  g.gain.linearRampToValueAtTime(0.2, time + 0.015);
+  g.gain.setValueAtTime(0.2, time + 0.16);
+  g.gain.linearRampToValueAtTime(0.0001, time + 0.18);
+  src.connect(filter).connect(g).connect(dest);
+  src.start(time);
+  src.stop(time + 0.2);
 }
 
 function playHat(ac: AudioContext, dest: AudioNode, time: number, open: boolean): void {
   playNoise(ac, dest, time, open ? 0.16 : 0.035, open ? 0.35 : 0.4, 7000);
+}
+
+// Thicker lead voice for the Easter-egg motif: two slightly detuned triangles
+// give it a chorus-y vocal shimmer, plus a quiet sub-octave for body so it
+// reads as the foreground voice rather than blending into the L4 lead.
+function playRickLead(
+  ac: AudioContext,
+  dest: AudioNode,
+  freq: number,
+  time: number,
+  duration: number,
+): void {
+  const o1 = ac.createOscillator();
+  const o2 = ac.createOscillator();
+  const o3 = ac.createOscillator();
+  const g = ac.createGain();
+  const subG = ac.createGain();
+  o1.type = 'triangle';
+  o2.type = 'triangle';
+  o3.type = 'triangle';
+  o1.frequency.value = freq;
+  o2.frequency.value = freq * 1.006;
+  o3.frequency.value = freq * 0.5;
+  subG.gain.value = 0.4;
+  const peak = 0.6;
+  const sustainEnd = Math.max(time + 0.04, time + duration - 0.06);
+  g.gain.setValueAtTime(0, time);
+  g.gain.linearRampToValueAtTime(peak, time + 0.01);
+  g.gain.setValueAtTime(peak, sustainEnd);
+  g.gain.exponentialRampToValueAtTime(0.001, time + duration);
+  o1.connect(g);
+  o2.connect(g);
+  o3.connect(subG).connect(g);
+  g.connect(dest);
+  o1.start(time);
+  o2.start(time);
+  o3.start(time);
+  o1.stop(time + duration + 0.05);
+  o2.stop(time + duration + 0.05);
+  o3.stop(time + duration + 0.05);
 }
 
 function playPad(
@@ -374,6 +475,16 @@ function buildLayers(ac: AudioContext, master: GainNode): MusicLayer[] {
       if (step === 14) playHat(ac, dest, time, true);
       return true;
     }),
+
+    // Counter-melody hook — comes in alongside the main lead and answers it
+    // with a sung-shaped contour every loop. Lower gain than the L4 lead so
+    // it sits as a counter-voice, not a takeover.
+    makeLayer(ac, master, 4, 0.16, (step, bar, time, dest, stepDur) => {
+      const note = RICK_LEAD[bar][step];
+      if (!note) return false;
+      playRickLead(ac, dest, note.freq, time, note.durSteps * stepDur);
+      return true;
+    }),
   ];
 }
 
@@ -448,18 +559,33 @@ export function getBeatState(): BeatState | null {
   };
 }
 
-export function setMusicLevel(level: number): void {
-  const clamped = Math.max(0, Math.min(level, LEVELS - 1));
-  if (clamped === musicLevel) return;
-  musicLevel = clamped;
+let baseMusicLevel = 0;
+let cheatMaxMusic = false;
+
+function applyMusicLevel(): void {
+  const target = cheatMaxMusic ? LEVELS - 1 : baseMusicLevel;
+  if (target === musicLevel) return;
+  musicLevel = target;
   const ac = ctx;
   if (!ac || !layers.length) return;
   for (const layer of layers) {
-    const target = clamped >= layer.unlockLevel ? layer.baseGain : 0;
+    const gainTarget = target >= layer.unlockLevel ? layer.baseGain : 0;
     layer.gain.gain.cancelScheduledValues(ac.currentTime);
     layer.gain.gain.setValueAtTime(layer.gain.gain.value, ac.currentTime);
-    layer.gain.gain.linearRampToValueAtTime(target, ac.currentTime + 0.4);
+    layer.gain.gain.linearRampToValueAtTime(gainTarget, ac.currentTime + 0.4);
   }
+}
+
+export function setMusicLevel(level: number): void {
+  baseMusicLevel = Math.max(0, Math.min(level, LEVELS - 1));
+  applyMusicLevel();
+}
+
+// Cheat: lock all layers on, regardless of game level. Returns the new state.
+export function toggleMaxMusicCheat(): boolean {
+  cheatMaxMusic = !cheatMaxMusic;
+  applyMusicLevel();
+  return cheatMaxMusic;
 }
 
 export function setMusicActive(active: boolean): void {

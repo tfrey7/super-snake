@@ -33,6 +33,7 @@ import {
   playLevelUp,
   setMusicActive,
   setMusicLevel,
+  toggleMaxMusicCheat,
   unlockAudio,
 } from './sound';
 import { drawTitle } from './title';
@@ -126,6 +127,13 @@ function swipeToDir(dx: number, dy: number): Dir {
 }
 
 window.addEventListener('keydown', (e) => {
+  if (e.shiftKey && e.code === 'KeyM') {
+    unlockAudio();
+    toggleMaxMusicCheat();
+    e.preventDefault();
+    return;
+  }
+
   if (phase === 'title') {
     startGame(performance.now());
     e.preventDefault();
