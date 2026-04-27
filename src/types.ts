@@ -54,8 +54,8 @@ const COLS_BASE = 15;
 const COLS_STEP = 3;
 const TICK_MS_BASE = 180;
 const TICK_MS_FINAL = 50;
-const APPLES_BASE = 3;
-const APPLES_STEP = 2;
+const APPLES_BASE = 2;
+const APPLES_STEP = 1;
 
 function clampLevel(level: number): number {
   return Math.max(0, Math.min(level, LEVELS - 1));
