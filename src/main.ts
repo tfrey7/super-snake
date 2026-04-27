@@ -7,7 +7,7 @@ import {
 } from './particles';
 import { draw } from './render';
 import { isMuted, playDeath, playEat, setMuted, unlockAudio } from './sound';
-import { CELL, TICK_MS, type Dir, type GameState } from './types';
+import { cellPx, tickMsForLevel, type Dir, type GameState } from './types';
 
 const KEY_DIRS: Record<string, Dir> = {
   ArrowUp: { x: 0, y: -1 },
@@ -56,8 +56,8 @@ function frame(now: number): void {
   const dt = now - lastTime;
   lastTime = now;
   acc += dt;
-  while (acc >= TICK_MS) {
-    acc -= TICK_MS;
+  while (acc >= tickMsForLevel(state.level)) {
+    acc -= tickMsForLevel(state.level);
     const prevScore = state.score;
     const prevDead = state.dead;
     const foodX = state.food.x;
@@ -66,7 +66,8 @@ function frame(now: number): void {
     if (!prevDead && state.dead) playDeath();
     else if (state.score > prevScore) {
       playEat();
-      spawnFireworks(foodX * CELL + CELL / 2, foodY * CELL + CELL / 2);
+      const cell = cellPx(state.level);
+      spawnFireworks(foodX * cell + cell / 2, foodY * cell + cell / 2);
     }
   }
   updateParticles(dt);

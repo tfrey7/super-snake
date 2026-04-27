@@ -1,15 +1,18 @@
 import {
-  COLS,
-  ROWS,
+  APPLES_PER_LEVEL,
   INITIAL_LENGTH,
+  LEVEL_SIZES,
+  colsForLevel,
   type Cell,
   type Dir,
   type GameState,
 } from './types';
 
 export function createInitialState(): GameState {
-  const startX = Math.floor(COLS / 2);
-  const startY = Math.floor(ROWS / 2);
+  const level = 0;
+  const cols = colsForLevel(level);
+  const startX = Math.floor(cols / 2);
+  const startY = Math.floor(cols / 2);
   const snake: Cell[] = [];
   for (let i = 0; i < INITIAL_LENGTH; i++) {
     snake.push({ x: startX - i, y: startY });
@@ -22,6 +25,7 @@ export function createInitialState(): GameState {
     food: { x: 0, y: 0 },
     score: 0,
     dead: false,
+    level,
   };
   state.food = randomEmptyCell(state);
   return state;
@@ -36,10 +40,12 @@ export function setNextDir(state: GameState, dir: Dir): void {
 export function step(state: GameState): void {
   if (state.dead) return;
   state.dir = state.nextDir;
+  const cols = colsForLevel(state.level);
+  const rows = cols;
   const head = state.snake[0];
   const next: Cell = { x: head.x + state.dir.x, y: head.y + state.dir.y };
 
-  if (next.x < 0 || next.x >= COLS || next.y < 0 || next.y >= ROWS) {
+  if (next.x < 0 || next.x >= cols || next.y < 0 || next.y >= rows) {
     state.dead = true;
     return;
   }
@@ -54,17 +60,28 @@ export function step(state: GameState): void {
   state.snake.unshift(next);
   if (next.x === state.food.x && next.y === state.food.y) {
     state.score += 1;
+    advanceLevelIfNeeded(state);
     state.food = randomEmptyCell(state);
   } else {
     state.snake.pop();
   }
 }
 
+function advanceLevelIfNeeded(state: GameState): void {
+  const target = Math.min(
+    Math.floor(state.score / APPLES_PER_LEVEL),
+    LEVEL_SIZES.length - 1,
+  );
+  state.level = target;
+}
+
 export function randomEmptyCell(state: GameState): Cell {
+  const cols = colsForLevel(state.level);
+  const rows = cols;
   const occupied = new Set(state.snake.map((c) => `${c.x},${c.y}`));
   const free: Cell[] = [];
-  for (let y = 0; y < ROWS; y++) {
-    for (let x = 0; x < COLS; x++) {
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
       if (!occupied.has(`${x},${y}`)) free.push({ x, y });
     }
   }
