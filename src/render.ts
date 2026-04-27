@@ -1,4 +1,10 @@
-import { BOARD_PX, cellPx, colsForLevel, type GameState } from './types';
+import {
+  BOARD_PX,
+  cellPx,
+  colsForLevel,
+  tickMsForLevel,
+  type GameState,
+} from './types';
 
 const BG = '#0e1116';
 const GRID = '#161b22';
@@ -7,7 +13,22 @@ const SNAKE_HEAD = '#a7f3d0';
 const FOOD = '#f472b6';
 const TEXT = '#e6edf3';
 
-export function draw(ctx: CanvasRenderingContext2D, state: GameState): void {
+const BG_RGB = hexToRgb(BG);
+const SNAKE_BODY_RGB = hexToRgb(SNAKE_BODY);
+const SNAKE_HEAD_RGB = hexToRgb(SNAKE_HEAD);
+const FOOD_RGB = hexToRgb(FOOD);
+
+const SHIMMER_AMP = 55;
+const SHIMMER_BG_AMP = 22;
+const SHIMMER_BAND_CELLS = 4;
+const SHIMMER_SWEEP_MS = 1800;
+const SHIMMER_IDLE_TICKS = 18;
+
+export function draw(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  now: number,
+): void {
   const w = BOARD_PX;
   const h = BOARD_PX;
 
@@ -36,6 +57,24 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState): void {
     cols = colsForLevel(state.level);
   }
 
+  const tickMs = tickMsForLevel(state.level);
+  const idleMs = tickMs * SHIMMER_IDLE_TICKS;
+  const cycleMs = SHIMMER_SWEEP_MS + idleMs;
+  const cyclePos = ((now % cycleMs) + cycleMs) % cycleMs;
+  const maxDiag = (cols - 1) * 2;
+  const sweepStart = -SHIMMER_BAND_CELLS;
+  const sweepEnd = maxDiag + SHIMMER_BAND_CELLS;
+  const sweepActive = cyclePos < SHIMMER_SWEEP_MS;
+  const bandPos = sweepActive
+    ? sweepStart + (cyclePos / SHIMMER_SWEEP_MS) * (sweepEnd - sweepStart)
+    : 0;
+  const shimmerAt = (x: number, y: number): number => {
+    if (!sweepActive) return 0;
+    const d = Math.abs(x + y - bandPos);
+    if (d >= SHIMMER_BAND_CELLS) return 0;
+    return 0.5 * (1 + Math.cos((Math.PI * d) / SHIMMER_BAND_CELLS));
+  };
+
   ctx.strokeStyle = GRID;
   ctx.lineWidth = 1;
   for (let x = 0; x <= cols; x++) {
@@ -53,12 +92,33 @@ export function draw(ctx: CanvasRenderingContext2D, state: GameState): void {
     ctx.stroke();
   }
 
-  ctx.fillStyle = FOOD;
+  if (sweepActive) {
+    const occupied = new Set<number>();
+    occupied.add(state.food.y * cols + state.food.x);
+    for (const seg of state.snake) occupied.add(seg.y * cols + seg.x);
+    const sMin = Math.max(0, Math.ceil(bandPos - SHIMMER_BAND_CELLS));
+    const sMax = Math.min(maxDiag, Math.floor(bandPos + SHIMMER_BAND_CELLS));
+    for (let s = sMin; s <= sMax; s++) {
+      const xMin = Math.max(0, s - (cols - 1));
+      const xMax = Math.min(cols - 1, s);
+      for (let x = xMin; x <= xMax; x++) {
+        const y = s - x;
+        if (occupied.has(y * cols + x)) continue;
+        const factor = shimmerAt(x, y);
+        if (factor <= 0) continue;
+        ctx.fillStyle = shiftRgb(BG_RGB, factor * SHIMMER_BG_AMP);
+        fillCellAt(ctx, x, y, cell, originX, originY);
+      }
+    }
+  }
+
+  ctx.fillStyle = shiftRgb(FOOD_RGB, shimmerAt(state.food.x, state.food.y) * SHIMMER_AMP);
   fillCellAt(ctx, state.food.x, state.food.y, cell, originX, originY);
 
   for (let i = 0; i < state.snake.length; i++) {
-    ctx.fillStyle = i === 0 ? SNAKE_HEAD : SNAKE_BODY;
     const seg = state.snake[i];
+    const base = i === 0 ? SNAKE_HEAD_RGB : SNAKE_BODY_RGB;
+    ctx.fillStyle = shiftRgb(base, shimmerAt(seg.x, seg.y) * SHIMMER_AMP);
     fillCellAt(ctx, seg.x, seg.y, cell, originX, originY);
   }
 
@@ -99,4 +159,23 @@ function lerp(a: number, b: number, t: number): number {
 function easeOutCubic(t: number): number {
   const u = 1 - t;
   return 1 - u * u * u;
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  return [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ];
+}
+
+function shiftRgb(rgb: [number, number, number], amt: number): string {
+  const r = clamp255(rgb[0] + amt);
+  const g = clamp255(rgb[1] + amt);
+  const b = clamp255(rgb[2] + amt);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function clamp255(v: number): number {
+  return Math.max(0, Math.min(255, Math.round(v)));
 }

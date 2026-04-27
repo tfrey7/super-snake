@@ -27,7 +27,7 @@ if (!ctx2d) throw new Error('2d context unavailable');
 const ctx: CanvasRenderingContext2D = ctx2d;
 
 let state: GameState = createInitialState();
-draw(ctx, state);
+draw(ctx, state, performance.now());
 
 window.addEventListener('keydown', (e) => {
   unlockAudio();
@@ -81,7 +81,7 @@ function frame(now: number): void {
     }
   }
   updateParticles(dt);
-  draw(ctx, state);
+  draw(ctx, state, now);
   drawParticles(ctx);
   requestAnimationFrame(frame);
 }
