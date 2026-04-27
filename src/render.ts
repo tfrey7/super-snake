@@ -76,11 +76,53 @@ let pulses: Pulse[] = [];
 let lastHeartbeatMs = -Infinity;
 let lastPulseLevel = -1;
 
+// Cinematic peak zoom on imminent self-collision. 2x is enough to crowd the
+// snake's head with its own body and read as "this is the moment" without
+// occluding so much board that the player loses spatial bearing.
+const DANGER_ZOOM_MAX = 2.0;
+
+// Affine camera that lerps between identity (no zoom) and a head-centered zoom
+// by `dangerLevel`. At danger=0 the transform is the identity and rendering is
+// unchanged; at danger=1 the head is centered and the world is scaled by
+// DANGER_ZOOM_MAX. The lookAt is clamped so the visible window never reveals
+// outside the board (which would otherwise show as black gutters when the head
+// is near a corner).
+export function applyDangerCamera(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  dangerLevel: number,
+): void {
+  if (dangerLevel <= 0) return;
+  const layout = state.transition
+    ? boardLayoutFor(
+        colsForLevel(state.transition.toLevel),
+        projectionForLevel(state.transition.toLevel),
+      )
+    : boardLayoutFor(
+        colsForLevel(state.level),
+        projectionForLevel(state.level),
+      );
+  const head = state.snake[0];
+  const headPx = layout.originX + head.x * layout.ax + head.y * layout.bx;
+  const headPy = layout.originY + head.x * layout.ay + head.y * layout.by;
+  const Z = DANGER_ZOOM_MAX;
+  const halfWin = BOARD_PX / (2 * Z);
+  const lookX = Math.max(halfWin, Math.min(BOARD_PX - halfWin, headPx));
+  const lookY = Math.max(halfWin, Math.min(BOARD_PX - halfWin, headPy));
+  const center = BOARD_PX / 2;
+  const s = 1 + dangerLevel * (Z - 1);
+  const tx = dangerLevel * (center - lookX * Z);
+  const ty = dangerLevel * (center - lookY * Z);
+  ctx.translate(tx, ty);
+  ctx.scale(s, s);
+}
+
 export function draw(
   ctx: CanvasRenderingContext2D,
   state: GameState,
   beat: BeatState | null,
   now: number,
+  dangerLevel: number,
 ): void {
   const w = BOARD_PX;
   const h = BOARD_PX;
@@ -183,6 +225,12 @@ export function draw(
     return total;
   };
 
+  // World layer — grid + extruded blocks. Wrapped in a save/restore so the
+  // imminent-death camera (zooms into the snake's head) only affects the play
+  // field; the HUD text below is drawn in screen space.
+  ctx.save();
+  applyDangerCamera(ctx, state, dangerLevel);
+
   // Tile outlines, batched into one path. Adjacent tiles share edges which get
   // stroked twice — cheap and visually identical.
   ctx.strokeStyle = rgbStr(gridRgb);
@@ -253,6 +301,8 @@ export function draw(
   for (const b of blocks) {
     drawBlock(ctx, b.x, b.y, layout, b.rgb, b.lift, b.pulse);
   }
+
+  ctx.restore();
 
   ctx.fillStyle = rgbStr(accentRgb);
   ctx.font = '14px ui-monospace, monospace';

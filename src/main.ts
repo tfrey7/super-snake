@@ -1,6 +1,7 @@
 import {
   cheatSpawnFruit,
   createInitialState,
+  isImminentDeath,
   setNextDir,
   step,
 } from './game';
@@ -21,6 +22,7 @@ import {
   updateParticles,
 } from './particles';
 import {
+  applyDangerCamera,
   draw,
   drawBeatBorder,
   drawLevelUpOverlay,
@@ -319,20 +321,41 @@ canvas.addEventListener('pointercancel', (e) => endDragGesture(e, false));
 let lastTime = performance.now();
 let acc = 0;
 
-// Tick interval, scaled up (slower snake) when a level transition is mid-flight
-// and that transition tilts the projection. Half-sine envelope: full speed at
-// the start and end of the transition, peak slowdown at the midpoint, so the
-// snake decelerates and reaccelerates smoothly through the iso reveal.
+// Cinematic "you are about to die" mode. dangerLevel eases between 0 and 1
+// while isImminentDeath is true; render.ts uses it to zoom the camera onto
+// the head, and currentTickMs uses it to slow gameplay so the player has
+// time to steer out. The ease keeps the transition smooth even though the
+// trigger condition itself is binary.
+const DANGER_SLOWMO_PEAK = 2; // peak = 3x slower at full danger
+const DANGER_EASE_RATE = 6; // per-second exponential approach
+let dangerLevel = 0;
+
+// Tick interval. Two independent slowdowns can apply:
+//  - Level transitions tilt the projection; we ease the snake through the
+//    reveal with a half-sine envelope so the iso flip reads instead of
+//    blurring past in a couple ticks.
+//  - Imminent-death cinematic stretches time so the player can react.
+// They never compose (the cinematic is suppressed during transitions), so a
+// straight multiply is fine.
 function currentTickMs(state: GameState): number {
-  const ms = tickMsForLevel(state.level);
-  if (!state.transition) return ms;
-  const peak = transitionTickPeak(
-    state.transition.fromLevel,
-    state.transition.toLevel,
-  );
-  if (peak <= 1) return ms;
-  const t = Math.min(state.transition.elapsedMs / state.transition.durationMs, 1);
-  return ms * (1 + (peak - 1) * Math.sin(Math.PI * t));
+  let ms = tickMsForLevel(state.level);
+  if (state.transition) {
+    const peak = transitionTickPeak(
+      state.transition.fromLevel,
+      state.transition.toLevel,
+    );
+    if (peak > 1) {
+      const t = Math.min(
+        state.transition.elapsedMs / state.transition.durationMs,
+        1,
+      );
+      ms *= 1 + (peak - 1) * Math.sin(Math.PI * t);
+    }
+  }
+  if (dangerLevel > 0) {
+    ms *= 1 + dangerLevel * DANGER_SLOWMO_PEAK;
+  }
+  return ms;
 }
 
 function frame(now: number): void {
@@ -351,6 +374,10 @@ function frame(now: number): void {
       state.transition = null;
     }
   }
+
+  const dangerTarget = isImminentDeath(state) ? 1 : 0;
+  dangerLevel +=
+    (dangerTarget - dangerLevel) * (1 - Math.exp((-DANGER_EASE_RATE * dt) / 1000));
 
   // Only step gameplay while alive.
   if (!state.dead) {
@@ -397,8 +424,11 @@ function frame(now: number): void {
 
   updateParticles(dt);
   const beat = getBeatState();
-  draw(ctx, state, beat, now);
+  draw(ctx, state, beat, now, dangerLevel);
+  ctx.save();
+  applyDangerCamera(ctx, state, dangerLevel);
   drawParticles(ctx);
+  ctx.restore();
   if (state.level >= 2) drawBeatBorder(ctx, beat, now);
   drawLevelUpOverlay(ctx, levelUpLevel, levelUpStartedAt, now);
 

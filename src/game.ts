@@ -76,6 +76,25 @@ export function step(state: GameState): void {
   }
 }
 
+// True when the snake's currently-queued direction would land the head on
+// its own body next tick — i.e. doing nothing kills you. Mirrors step()'s
+// self-collision logic exactly so the cinematic trigger and the death
+// condition can never disagree. Suppressed during level transitions so the
+// iso-reveal slowdown isn't compounded by the danger slowdown.
+export function isImminentDeath(state: GameState): boolean {
+  if (state.dead || state.transition) return false;
+  const cols = colsForLevel(state.level);
+  const head = state.snake[0];
+  const raw = neighborOf(head, state.nextDir);
+  const nx = (raw.x + cols) % cols;
+  const ny = (raw.y + cols) % cols;
+  for (let i = 0; i < state.snake.length - 1; i++) {
+    const seg = state.snake[i];
+    if (seg.x === nx && seg.y === ny) return true;
+  }
+  return false;
+}
+
 // Dev cheat: drop an extra apple onto the board without touching the score
 // or the snake. Bound to Shift+A in main.ts.
 export function cheatSpawnFruit(state: GameState): void {
