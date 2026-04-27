@@ -42,11 +42,27 @@ const LEVEL_PALETTE: Array<{ bg: Rgb; grid: Rgb; accent: Rgb }> = [
   { bg: [14, 14, 22], grid: [22, 22, 34], accent: [165, 180, 252] }, // 10: indigo
 ];
 
-const SHIMMER_AMP = 55;
-const SHIMMER_BG_AMP = 22;
-const SHIMMER_BAND_CELLS = 4;
-const SHIMMER_SWEEP_MS = 1800;
-const SHIMMER_IDLE_TICKS = 18;
+const PULSE_AMP = 55;
+const PULSE_BG_AMP = 22;
+const PULSE_BAND = 3.2;
+const PULSE_SWEEP_MS = 1800;
+const PULSE_IDLE_TICKS = 18;
+
+// Each pulse is a hex ring expanding from a fixed origin. Rings are emitted
+// from the apple at spawn time but live independently — once airborne they no
+// longer track the apple, so eating mid-sweep can leave two rings overlapping.
+type Pulse = {
+  cqx: number;
+  cqy: number;
+  cqz: number;
+  startMs: number;
+  maxRadius: number;
+};
+
+let pulses: Pulse[] = [];
+let lastFoodKey: string | null = null;
+let lastEmitMs = -Infinity;
+let lastPulseLevel = -1;
 
 export function draw(
   ctx: CanvasRenderingContext2D,
@@ -87,23 +103,52 @@ export function draw(
   ctx.fillStyle = rgbStr(bgRgb);
   ctx.fillRect(0, 0, w, h);
 
-  const shimmerEnabled = state.level >= 3;
-  const tickMs = tickMsForLevel(state.level);
-  const idleMs = tickMs * SHIMMER_IDLE_TICKS;
-  const cycleMs = SHIMMER_SWEEP_MS + idleMs;
-  const cyclePos = ((now % cycleMs) + cycleMs) % cycleMs;
-  const maxDiag = (cols - 1) * 2;
-  const sweepStart = -SHIMMER_BAND_CELLS;
-  const sweepEnd = maxDiag + SHIMMER_BAND_CELLS;
-  const sweepActive = shimmerEnabled && cyclePos < SHIMMER_SWEEP_MS;
-  const bandPos = sweepActive
-    ? sweepStart + (cyclePos / SHIMMER_SWEEP_MS) * (sweepEnd - sweepStart)
-    : 0;
-  const shimmerAt = (x: number, y: number): number => {
-    if (!sweepActive) return 0;
-    const d = Math.abs(x + y - bandPos);
-    if (d >= SHIMMER_BAND_CELLS) return 0;
-    return 0.5 * (1 + Math.cos((Math.PI * d) / SHIMMER_BAND_CELLS));
+  // Reset pulses across level changes — origins are offset coords, which map
+  // to a different hex on a different-sized grid.
+  if (state.level !== lastPulseLevel) {
+    pulses = [];
+    lastFoodKey = null;
+    lastEmitMs = -Infinity;
+    lastPulseLevel = state.level;
+  }
+
+  const pulseEnabled = state.level >= 3;
+  if (pulseEnabled) {
+    const tickMs = tickMsForLevel(state.level);
+    const cycleMs = PULSE_SWEEP_MS + tickMs * PULSE_IDLE_TICKS;
+    const foodKey = `${state.food.x},${state.food.y}`;
+    if (foodKey !== lastFoodKey || now - lastEmitMs >= cycleMs) {
+      pulses.push(makePulse(state.food.x, state.food.y, cols, now));
+      lastEmitMs = now;
+      lastFoodKey = foodKey;
+    }
+    pulses = pulses.filter((p) => now - p.startMs < PULSE_SWEEP_MS);
+  } else if (pulses.length > 0) {
+    pulses = [];
+  }
+
+  const pulseAt = (x: number, y: number): number => {
+    if (pulses.length === 0) return 0;
+    const ax = x - (y - (y & 1)) / 2;
+    const az = y;
+    const ay = -ax - az;
+    let total = 0;
+    for (const p of pulses) {
+      const ringRadius =
+        ((now - p.startMs) / PULSE_SWEEP_MS) * (p.maxRadius + PULSE_BAND);
+      const dist =
+        (Math.abs(ax - p.cqx) +
+          Math.abs(ay - p.cqy) +
+          Math.abs(az - p.cqz)) /
+        2;
+      const d = Math.abs(dist - ringRadius);
+      if (d >= PULSE_BAND) continue;
+      // Ring circumference grows ~6r, so without a fade outer rings light far
+      // more cells than the inner pulses and dominate the cycle visually.
+      const ringFade = 1 / (1 + ringRadius * 0.2);
+      total += 0.5 * (1 + Math.cos((Math.PI * d) / PULSE_BAND)) * ringFade;
+    }
+    return total;
   };
 
   // Hex grid outlines, batched into one path. Interior edges are stroked twice
@@ -119,21 +164,16 @@ export function draw(
   }
   ctx.stroke();
 
-  if (sweepActive) {
+  if (pulses.length > 0) {
     const occupied = new Set<number>();
     occupied.add(state.food.y * cols + state.food.x);
     for (const seg of state.snake) occupied.add(seg.y * cols + seg.x);
-    const sMin = Math.max(0, Math.ceil(bandPos - SHIMMER_BAND_CELLS));
-    const sMax = Math.min(maxDiag, Math.floor(bandPos + SHIMMER_BAND_CELLS));
-    for (let s = sMin; s <= sMax; s++) {
-      const xMin = Math.max(0, s - (cols - 1));
-      const xMax = Math.min(cols - 1, s);
-      for (let x = xMin; x <= xMax; x++) {
-        const y = s - x;
+    for (let y = 0; y < cols; y++) {
+      for (let x = 0; x < cols; x++) {
         if (occupied.has(y * cols + x)) continue;
-        const factor = shimmerAt(x, y);
+        const factor = pulseAt(x, y);
         if (factor <= 0) continue;
-        ctx.fillStyle = shiftRgb(bgRgb, factor * SHIMMER_BG_AMP);
+        ctx.fillStyle = shiftRgb(bgRgb, factor * PULSE_BG_AMP);
         fillHex(ctx, x, y, layout);
       }
     }
@@ -141,14 +181,14 @@ export function draw(
 
   ctx.fillStyle = shiftRgb(
     FOOD_RGB,
-    shimmerAt(state.food.x, state.food.y) * SHIMMER_AMP,
+    pulseAt(state.food.x, state.food.y) * PULSE_AMP,
   );
   fillHex(ctx, state.food.x, state.food.y, layout);
 
   for (let i = 0; i < state.snake.length; i++) {
     const seg = state.snake[i];
     const base = i === 0 ? SNAKE_HEAD_RGB : SNAKE_BODY_RGB;
-    ctx.fillStyle = shiftRgb(base, shimmerAt(seg.x, seg.y) * SHIMMER_AMP);
+    ctx.fillStyle = shiftRgb(base, pulseAt(seg.x, seg.y) * PULSE_AMP);
     fillHex(ctx, seg.x, seg.y, layout);
   }
 
@@ -397,6 +437,36 @@ export function drawLevelUpOverlay(
   drawText(ctx, text, 0, 0, px);
 
   ctx.restore();
+}
+
+function makePulse(
+  foodX: number,
+  foodY: number,
+  cols: number,
+  now: number,
+): Pulse {
+  const cqx = foodX - (foodY - (foodY & 1)) / 2;
+  const cqz = foodY;
+  const cqy = -cqx - cqz;
+  // Cube distance from the origin to each board corner — the largest one is
+  // how far the ring has to travel to fully clear the board. Using this per
+  // pulse keeps the wall-clock sweep duration constant regardless of where on
+  // the board the apple sat when the ring was emitted.
+  let maxRadius = 0;
+  for (const [cx, cy] of [
+    [0, 0],
+    [cols - 1, 0],
+    [0, cols - 1],
+    [cols - 1, cols - 1],
+  ] as const) {
+    const ax = cx - (cy - (cy & 1)) / 2;
+    const az = cy;
+    const ay = -ax - az;
+    const d =
+      (Math.abs(ax - cqx) + Math.abs(ay - cqy) + Math.abs(az - cqz)) / 2;
+    if (d > maxRadius) maxRadius = d;
+  }
+  return { cqx, cqy, cqz, startMs: now, maxRadius };
 }
 
 function easeOutBack(t: number): number {
