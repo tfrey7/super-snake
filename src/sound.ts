@@ -83,6 +83,7 @@ type MusicLayer = {
     stepDur: number,
   ) => boolean;
   lastFireAudioTime: number;
+  lastFireStep: number;
 };
 
 const STEPS_PER_BAR = 16;
@@ -275,7 +276,14 @@ function makeLayer(
   const gain = ac.createGain();
   gain.gain.value = 0;
   gain.connect(master);
-  return { unlockLevel, baseGain, gain, trigger, lastFireAudioTime: -Infinity };
+  return {
+    unlockLevel,
+    baseGain,
+    gain,
+    trigger,
+    lastFireAudioTime: -Infinity,
+    lastFireStep: -1,
+  };
 }
 
 function buildLayers(ac: AudioContext, master: GainNode): MusicLayer[] {
@@ -402,7 +410,10 @@ function scheduleAhead(): void {
     for (const layer of layers) {
       if (musicLevel >= layer.unlockLevel) {
         const fired = layer.trigger(stepIndex, barIndex, nextStepTime, layer.gain, stepDur);
-        if (fired && musicActive) layer.lastFireAudioTime = nextStepTime;
+        if (fired && musicActive) {
+          layer.lastFireAudioTime = nextStepTime;
+          layer.lastFireStep = stepIndex;
+        }
       }
     }
     nextStepTime += stepDur;
@@ -416,6 +427,7 @@ function scheduleAhead(): void {
 
 export type BeatState = {
   layerFireMs: number[];
+  layerFireSteps: number[];
   unlockLevels: number[];
   musicLevel: number;
   stepDurMs: number;
@@ -429,6 +441,7 @@ export function getBeatState(): BeatState | null {
     layerFireMs: layers.map((l) =>
       Number.isFinite(l.lastFireAudioTime) ? l.lastFireAudioTime * 1000 + offsetMs : -Infinity,
     ),
+    layerFireSteps: layers.map((l) => l.lastFireStep),
     unlockLevels: layers.map((l) => l.unlockLevel),
     musicLevel,
     stepDurMs: stepDurForLevel(musicLevel) * 1000,

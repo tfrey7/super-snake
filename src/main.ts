@@ -1,4 +1,9 @@
-import { cheatEat, createInitialState, setNextDir, step } from './game';
+import {
+  cheatSpawnFruit,
+  createInitialState,
+  setNextDir,
+  step,
+} from './game';
 import {
   drawLeaderboard,
   insertScore,
@@ -186,20 +191,10 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  // Cheat: Shift+A bumps the score (and level) to fast-forward into later levels.
+  // Cheat: Shift+A drops an extra apple onto the board for testing multi-fruit.
   if (phase === 'playing' && e.shiftKey && e.code === 'KeyA') {
-    const prevLevel = state.level;
-    cheatEat(state);
-    setMusicLevel(state.level);
+    cheatSpawnFruit(state);
     playEat();
-    if (state.level > prevLevel) {
-      playLevelUp();
-      if (state.level >= 3) {
-        spawnLevelUpFireworks(BOARD_PX, levelFireworkColors(state.level));
-      }
-      levelUpStartedAt = performance.now();
-      levelUpLevel = state.level;
-    }
     e.preventDefault();
     return;
   }
@@ -333,8 +328,6 @@ function frame(now: number): void {
       const prevDead = state.dead;
       const prevLevel = state.level;
       const prevLayout = hexLayout(state.level);
-      const foodX = state.food.x;
-      const foodY = state.food.y;
       step(state);
       setMusicLevel(state.level);
       if (!prevDead && state.dead) {
@@ -345,7 +338,8 @@ function frame(now: number): void {
       } else if (state.score > prevScore) {
         playEat();
         if (prevLevel >= 3) {
-          const { px, py } = hexCenter(foodX, foodY, prevLayout);
+          const head = state.snake[0];
+          const { px, py } = hexCenter(head.x, head.y, prevLayout);
           spawnFireworks(
             px,
             py,
@@ -369,9 +363,10 @@ function frame(now: number): void {
   }
 
   updateParticles(dt);
-  draw(ctx, state, now);
+  const beat = getBeatState();
+  draw(ctx, state, beat, now);
   drawParticles(ctx);
-  if (state.level >= 2) drawBeatBorder(ctx, getBeatState(), now);
+  if (state.level >= 2) drawBeatBorder(ctx, beat, now);
   drawLevelUpOverlay(ctx, levelUpLevel, levelUpStartedAt, now);
 
   if (phase === 'death-pause' && now >= deathPauseUntil) {

@@ -50,7 +50,7 @@ export type GameState = {
   snake: Cell[];
   dir: Dir;
   nextDir: Dir;
-  food: Cell;
+  food: Cell[];
   score: number;
   dead: boolean;
   level: number;

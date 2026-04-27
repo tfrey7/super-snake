@@ -9,7 +9,6 @@ import {
   hexLayoutFor,
   hexSizeFor,
   scoreToReachLevel,
-  tickMsForLevel,
   type GameState,
   type HexLayout,
 } from './types';
@@ -46,7 +45,6 @@ const PULSE_AMP = 55;
 const PULSE_BG_AMP = 22;
 const PULSE_BAND = 3.2;
 const PULSE_SWEEP_MS = 1800;
-const PULSE_IDLE_TICKS = 18;
 
 // Each pulse is a hex ring expanding from a fixed origin. Rings are emitted
 // from the apple at spawn time but live independently — once airborne they no
@@ -60,13 +58,13 @@ type Pulse = {
 };
 
 let pulses: Pulse[] = [];
-let lastFoodKey: string | null = null;
-let lastEmitMs = -Infinity;
+let lastHeartbeatMs = -Infinity;
 let lastPulseLevel = -1;
 
 export function draw(
   ctx: CanvasRenderingContext2D,
   state: GameState,
+  beat: BeatState | null,
   now: number,
 ): void {
   const w = BOARD_PX;
@@ -107,20 +105,27 @@ export function draw(
   // to a different hex on a different-sized grid.
   if (state.level !== lastPulseLevel) {
     pulses = [];
-    lastFoodKey = null;
-    lastEmitMs = -Infinity;
+    lastHeartbeatMs = -Infinity;
     lastPulseLevel = state.level;
   }
 
   const pulseEnabled = state.level >= 3;
   if (pulseEnabled) {
-    const tickMs = tickMsForLevel(state.level);
-    const cycleMs = PULSE_SWEEP_MS + tickMs * PULSE_IDLE_TICKS;
-    const foodKey = `${state.food.x},${state.food.y}`;
-    if (foodKey !== lastFoodKey || now - lastEmitMs >= cycleMs) {
-      pulses.push(makePulse(state.food.x, state.food.y, cols, now));
-      lastEmitMs = now;
-      lastFoodKey = foodKey;
+    // Pulse all fruits in unison on the downbeat — heartbeat (layer 0) fires
+    // on steps 0 and 8 (beats 1 and 3); we want only step 0, the bar's
+    // strong beat, so the rings come once per bar instead of twice.
+    const heartbeat = beat?.layerFireMs[0];
+    const heartbeatStep = beat?.layerFireSteps[0];
+    if (
+      heartbeat !== undefined &&
+      Number.isFinite(heartbeat) &&
+      heartbeat > lastHeartbeatMs &&
+      heartbeatStep === 0
+    ) {
+      for (const f of state.food) {
+        pulses.push(makePulse(f.x, f.y, cols, now));
+      }
+      lastHeartbeatMs = heartbeat;
     }
     pulses = pulses.filter((p) => now - p.startMs < PULSE_SWEEP_MS);
   } else if (pulses.length > 0) {
@@ -166,7 +171,7 @@ export function draw(
 
   if (pulses.length > 0) {
     const occupied = new Set<number>();
-    occupied.add(state.food.y * cols + state.food.x);
+    for (const f of state.food) occupied.add(f.y * cols + f.x);
     for (const seg of state.snake) occupied.add(seg.y * cols + seg.x);
     for (let y = 0; y < cols; y++) {
       for (let x = 0; x < cols; x++) {
@@ -179,11 +184,10 @@ export function draw(
     }
   }
 
-  ctx.fillStyle = shiftRgb(
-    FOOD_RGB,
-    pulseAt(state.food.x, state.food.y) * PULSE_AMP,
-  );
-  fillHex(ctx, state.food.x, state.food.y, layout);
+  for (const f of state.food) {
+    ctx.fillStyle = shiftRgb(FOOD_RGB, pulseAt(f.x, f.y) * PULSE_AMP);
+    fillHex(ctx, f.x, f.y, layout);
+  }
 
   for (let i = 0; i < state.snake.length; i++) {
     const seg = state.snake[i];

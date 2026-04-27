@@ -27,13 +27,13 @@ export function createInitialState(): GameState {
     snake,
     dir: DIR_E,
     nextDir: DIR_E,
-    food: { x: 0, y: 0 },
+    food: [],
     score: 0,
     dead: false,
     level,
     transition: null,
   };
-  state.food = randomEmptyCell(state);
+  state.food = [randomEmptyCell(state)];
   return state;
 }
 
@@ -63,21 +63,24 @@ export function step(state: GameState): void {
   }
 
   state.snake.unshift(next);
-  if (next.x === state.food.x && next.y === state.food.y) {
+  const eatenIdx = state.food.findIndex(
+    (f) => f.x === next.x && f.y === next.y,
+  );
+  if (eatenIdx >= 0) {
     state.score += 1;
     advanceLevelIfNeeded(state);
-    state.food = randomEmptyCell(state);
+    state.food.splice(eatenIdx, 1);
+    state.food.push(randomEmptyCell(state));
   } else {
     state.snake.pop();
   }
 }
 
-// Dev cheat: bump the score (and trigger level-up if crossed) without
-// touching the snake or the on-field apple. Bound to Shift+A in main.ts.
-export function cheatEat(state: GameState): void {
+// Dev cheat: drop an extra apple onto the board without touching the score
+// or the snake. Bound to Shift+A in main.ts.
+export function cheatSpawnFruit(state: GameState): void {
   if (state.dead) return;
-  state.score += 1;
-  advanceLevelIfNeeded(state);
+  state.food.push(randomEmptyCell(state));
 }
 
 function advanceLevelIfNeeded(state: GameState): void {
@@ -100,7 +103,9 @@ export function randomEmptyCell(state: GameState): Cell {
     return { x: TUTORIAL_APPLE_X[idx], y: Math.floor(cols / 2) };
   }
   const rows = cols;
-  const occupied = new Set(state.snake.map((c) => `${c.x},${c.y}`));
+  const occupied = new Set<string>();
+  for (const c of state.snake) occupied.add(`${c.x},${c.y}`);
+  for (const f of state.food) occupied.add(`${f.x},${f.y}`);
   const free: Cell[] = [];
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
