@@ -23,9 +23,10 @@ type Rgb = [number, number, number];
 
 // Per-level palette: HSL hue rotation around a fixed dark luminance, low chroma.
 // Snake/food stay constant so contrast is preserved as the world drifts in tone.
-// Level 1 matches the original cool-blue baseline; subsequent levels rotate the wheel.
+// Level 0 is the tutorial — most muted so cool-blue at level 1 reads as the real start.
 // Accent is the bright sibling of bg/grid — drives label text and the level progress bar.
 const LEVEL_PALETTE: Array<{ bg: Rgb; grid: Rgb; accent: Rgb }> = [
+  { bg: [12, 13, 16], grid: [20, 22, 26], accent: [148, 163, 184] }, // 0: tutorial — neutral slate
   { bg: [14, 17, 22], grid: [22, 27, 34], accent: [147, 197, 253] }, // 1: cool blue (origin)
   { bg: [14, 22, 22], grid: [22, 34, 34], accent: [103, 232, 249] }, // 2: cyan
   { bg: [14, 22, 18], grid: [22, 34, 28], accent: [94, 234, 212] }, // 3: teal
@@ -89,7 +90,7 @@ export function draw(
   ctx.fillStyle = rgbStr(bgRgb);
   ctx.fillRect(0, 0, w, h);
 
-  const shimmerEnabled = state.level >= 2;
+  const shimmerEnabled = state.level >= 3;
   const tickMs = tickMsForLevel(state.level);
   const idleMs = tickMs * SHIMMER_IDLE_TICKS;
   const cycleMs = SHIMMER_SWEEP_MS + idleMs;
@@ -160,23 +161,28 @@ export function draw(
   ctx.textBaseline = 'top';
   ctx.textAlign = 'start';
   ctx.fillText(`score ${state.score}`, 8, 8);
-  ctx.textAlign = 'end';
-  ctx.fillText(`level ${state.level + 1} / ${LEVELS}`, w - 8, 8);
-  ctx.textAlign = 'start';
 
-  if (state.level < LEVELS - 1) {
-    const eaten = state.score - scoreToReachLevel(state.level);
-    const need = applesToAdvanceFrom(state.level);
-    const t = Math.max(0, Math.min(1, eaten / need));
-    const barW = 100;
-    const barH = 4;
-    const barX = w - 8 - barW;
-    const barY = 24;
-    const accent = `${Math.round(accentRgb[0])}, ${Math.round(accentRgb[1])}, ${Math.round(accentRgb[2])}`;
-    ctx.fillStyle = `rgba(${accent}, 0.2)`;
-    ctx.fillRect(barX, barY, barW, barH);
-    ctx.fillStyle = `rgba(${accent}, 0.9)`;
-    ctx.fillRect(barX, barY, barW * t, barH);
+  // Level indicator and progress bar are hidden on the tutorial — the player
+  // shouldn't know there's a level system until the first level-up reveals it.
+  if (state.level >= 1) {
+    ctx.textAlign = 'end';
+    ctx.fillText(`level ${state.level} / ${LEVELS - 1}`, w - 8, 8);
+    ctx.textAlign = 'start';
+
+    if (state.level < LEVELS - 1) {
+      const eaten = state.score - scoreToReachLevel(state.level);
+      const need = applesToAdvanceFrom(state.level);
+      const t = Math.max(0, Math.min(1, eaten / need));
+      const barW = 100;
+      const barH = 4;
+      const barX = w - 8 - barW;
+      const barY = 24;
+      const accent = `${Math.round(accentRgb[0])}, ${Math.round(accentRgb[1])}, ${Math.round(accentRgb[2])}`;
+      ctx.fillStyle = `rgba(${accent}, 0.2)`;
+      ctx.fillRect(barX, barY, barW, barH);
+      ctx.fillStyle = `rgba(${accent}, 0.9)`;
+      ctx.fillRect(barX, barY, barW * t, barH);
+    }
   }
 }
 
@@ -323,10 +329,10 @@ export function drawLevelUpOverlay(
   const w = BOARD_PX;
   const h = BOARD_PX;
 
-  const showFlash = level >= 3;
-  const showGlow = level >= 2;
-  const showWobble = level >= 2;
-  const baseScale = level >= 3 ? 1 : level === 2 ? 0.85 : 0.7;
+  const showFlash = level >= 4;
+  const showGlow = level >= 3;
+  const showWobble = level >= 3;
+  const baseScale = level >= 4 ? 1 : level === 3 ? 0.85 : 0.7;
 
   // Soft full-screen flash that quickly decays.
   if (showFlash && elapsed < LEVEL_UP_FLASH_MS) {
@@ -355,7 +361,7 @@ export function drawLevelUpOverlay(
   }
   scale *= baseScale;
 
-  const text = `LEVEL ${level + 1}`;
+  const text = `LEVEL ${level}`;
   const px = BANNER_PIXEL;
   const tw = textWidth(text, px);
   const th = 7 * px;

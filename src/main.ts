@@ -327,7 +327,7 @@ function frame(now: number): void {
         deathPauseUntil = now + DEATH_PAUSE_MS;
       } else if (state.score > prevScore) {
         playEat();
-        if (prevLevel >= 2) {
+        if (prevLevel >= 3) {
           spawnFireworks(
             foodX * prevCell + prevCell / 2,
             foodY * prevCell + prevCell / 2,
@@ -337,7 +337,7 @@ function frame(now: number): void {
       }
       if (state.level > prevLevel) {
         playLevelUp();
-        if (state.level >= 2) spawnLevelUpFireworks(BOARD_PX);
+        if (state.level >= 3) spawnLevelUpFireworks(BOARD_PX);
         levelUpStartedAt = now;
         levelUpLevel = state.level;
       }
@@ -350,7 +350,7 @@ function frame(now: number): void {
   updateParticles(dt);
   draw(ctx, state, now);
   drawParticles(ctx);
-  if (state.level >= 1) drawBeatBorder(ctx, getBeatState(), now);
+  if (state.level >= 2) drawBeatBorder(ctx, getBeatState(), now);
   drawLevelUpOverlay(ctx, levelUpLevel, levelUpStartedAt, now);
 
   if (phase === 'death-pause' && now >= deathPauseUntil) {

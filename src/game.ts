@@ -8,14 +8,17 @@ import {
   type GameState,
 } from './types';
 
+// Tutorial apples sit in the snake's lane so it auto-eats them in sequence; the
+// final eat triggers the level-up that reveals the gimmick.
+const TUTORIAL_APPLE_X = [5, 7, 9];
+
 export function createInitialState(): GameState {
   const level = 0;
   const cols = colsForLevel(level);
-  const startX = Math.floor(cols / 2);
-  const startY = Math.floor(cols / 2);
+  const midY = Math.floor(cols / 2);
   const snake: Cell[] = [];
   for (let i = 0; i < INITIAL_LENGTH; i++) {
-    snake.push({ x: startX - i, y: startY });
+    snake.push({ x: 2 - i, y: midY });
   }
   const dir: Dir = { x: 1, y: 0 };
   const state: GameState = {
@@ -108,6 +111,10 @@ function advanceLevelIfNeeded(state: GameState): void {
 
 export function randomEmptyCell(state: GameState): Cell {
   const cols = colsForLevel(state.level);
+  if (state.level === 0) {
+    const idx = Math.min(state.score, TUTORIAL_APPLE_X.length - 1);
+    return { x: TUTORIAL_APPLE_X[idx], y: Math.floor(cols / 2) };
+  }
   const rows = cols;
   const occupied = new Set(state.snake.map((c) => `${c.x},${c.y}`));
   const free: Cell[] = [];

@@ -230,8 +230,8 @@ function makeLayer(
 
 function buildLayers(ac: AudioContext, master: GainNode): MusicLayer[] {
   return [
-    // L0 — heartbeat: lone low pulse on beats 1 and 3
-    makeLayer(ac, master, 0, 0.22, (step, time, dest) => {
+    // L1 — heartbeat: lone low pulse on beats 1 and 3
+    makeLayer(ac, master, 1, 0.22, (step, time, dest) => {
       if (step === 0) {
         playOsc(ac, dest, 110, time, 0.42, 'square', 0.55);
         return true;
@@ -243,68 +243,68 @@ function buildLayers(ac: AudioContext, master: GainNode): MusicLayer[] {
       return false;
     }),
 
-    // L1 — bassline
-    makeLayer(ac, master, 1, 0.28, (step, time, dest) => {
+    // L2 — bassline
+    makeLayer(ac, master, 2, 0.28, (step, time, dest) => {
       const f = BASS[step];
       if (!f) return false;
       playOsc(ac, dest, f, time, 0.17, 'square', 0.55, 0.003);
       return true;
     }),
 
-    // L2 — kick: 4-on-the-floor
-    makeLayer(ac, master, 2, 0.55, (step, time, dest) => {
+    // L3 — kick: 4-on-the-floor
+    makeLayer(ac, master, 3, 0.55, (step, time, dest) => {
       if (step % 4 !== 0) return false;
       playKick(ac, dest, time);
       return true;
     }),
 
-    // L3 — lead melody (triangle)
-    makeLayer(ac, master, 3, 0.18, (step, time, dest) => {
+    // L4 — lead melody (triangle)
+    makeLayer(ac, master, 4, 0.18, (step, time, dest) => {
       const f = LEAD[step];
       if (!f) return false;
       playOsc(ac, dest, f, time, 0.18, 'triangle', 0.65, 0.005);
       return true;
     }),
 
-    // L4 — hi-hat: 8th notes
-    makeLayer(ac, master, 4, 0.18, (step, time, dest) => {
+    // L5 — hi-hat: 8th notes
+    makeLayer(ac, master, 5, 0.18, (step, time, dest) => {
       if (step % 2 !== 0) return false;
       playHat(ac, dest, time, false);
       return true;
     }),
 
-    // L5 — arpeggio counter, fills the lead's rests
-    makeLayer(ac, master, 5, 0.13, (step, time, dest) => {
+    // L6 — arpeggio counter, fills the lead's rests
+    makeLayer(ac, master, 6, 0.13, (step, time, dest) => {
       if (step % 2 !== 1) return false;
       playOsc(ac, dest, ARP[step], time, 0.08, 'square', 0.45, 0.002);
       return true;
     }),
 
-    // L6 — snare on beats 2 and 4
-    makeLayer(ac, master, 6, 0.32, (step, time, dest) => {
+    // L7 — snare on beats 2 and 4
+    makeLayer(ac, master, 7, 0.32, (step, time, dest) => {
       if (step !== 4 && step !== 12) return false;
       playSnare(ac, dest, time);
       return true;
     }),
 
-    // L7 — chord pad: sustained A-minor triad, refreshed each bar
-    makeLayer(ac, master, 7, 0.1, (step, time, dest, stepDur) => {
+    // L8 — chord pad: sustained A-minor triad, refreshed each bar
+    makeLayer(ac, master, 8, 0.1, (step, time, dest, stepDur) => {
       if (step !== 0) return false;
       const dur = stepDur * STEPS_PER_BAR;
       for (const f of CHORD) playPad(ac, dest, f, time, dur);
       return true;
     }),
 
-    // L8 — harmony layer doubling the lead a third above
-    makeLayer(ac, master, 8, 0.12, (step, time, dest) => {
+    // L9 — harmony layer doubling the lead a third above
+    makeLayer(ac, master, 9, 0.12, (step, time, dest) => {
       const f = HARMONY[step];
       if (!f) return false;
       playOsc(ac, dest, f, time, 0.18, 'triangle', 0.5, 0.005);
       return true;
     }),
 
-    // L9 — flourish: octave-up arp and an open hat on the and-of-4
-    makeLayer(ac, master, 9, 0.2, (step, time, dest) => {
+    // L10 — flourish: octave-up arp and an open hat on the and-of-4
+    makeLayer(ac, master, 10, 0.2, (step, time, dest) => {
       playOsc(ac, dest, ARP[step] * 2, time, 0.05, 'triangle', 0.22, 0.002);
       if (step === 14) playHat(ac, dest, time, true);
       return true;
