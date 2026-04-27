@@ -61,6 +61,7 @@ export function draw(
     cols = colsForLevel(state.level);
   }
 
+  const shimmerEnabled = state.level >= 2;
   const tickMs = tickMsForLevel(state.level);
   const idleMs = tickMs * SHIMMER_IDLE_TICKS;
   const cycleMs = SHIMMER_SWEEP_MS + idleMs;
@@ -68,7 +69,7 @@ export function draw(
   const maxDiag = (cols - 1) * 2;
   const sweepStart = -SHIMMER_BAND_CELLS;
   const sweepEnd = maxDiag + SHIMMER_BAND_CELLS;
-  const sweepActive = cyclePos < SHIMMER_SWEEP_MS;
+  const sweepActive = shimmerEnabled && cyclePos < SHIMMER_SWEEP_MS;
   const bandPos = sweepActive
     ? sweepStart + (cyclePos / SHIMMER_SWEEP_MS) * (sweepEnd - sweepStart)
     : 0;

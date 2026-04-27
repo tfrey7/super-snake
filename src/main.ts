@@ -348,7 +348,7 @@ function frame(now: number): void {
   updateParticles(dt);
   draw(ctx, state, now);
   drawParticles(ctx);
-  drawBeatBorder(ctx, getBeatState(), now);
+  if (state.level >= 1) drawBeatBorder(ctx, getBeatState(), now);
   drawLevelUpOverlay(ctx, levelUpLevel, levelUpStartedAt, now);
 
   if (phase === 'death-pause' && now >= deathPauseUntil) {
