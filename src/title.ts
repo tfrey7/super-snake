@@ -1,19 +1,10 @@
+import { GLYPHS } from './pixelFont';
 import { BOARD_PX } from './types';
 
 const TITLE_CORE = '167, 243, 208';
 const TITLE_GLOW = '94, 234, 212';
 const PROMPT_COLOR = '244, 114, 182';
 const STAR_COLOR = '226, 232, 240';
-
-const FONT: Record<string, number[]> = {
-  S: [0b01110, 0b10001, 0b10000, 0b01110, 0b00001, 0b10001, 0b01110],
-  N: [0b10001, 0b11001, 0b10101, 0b10101, 0b10011, 0b10001, 0b10001],
-  U: [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
-  M: [0b10001, 0b11011, 0b10101, 0b10001, 0b10001, 0b10001, 0b10001],
-  I: [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
-  O: [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
-  E: [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
-};
 
 const TITLE = 'SNUMINES';
 const PIXEL = 12;
@@ -121,7 +112,7 @@ function drawTitleText(
   ctx.fillStyle = fillStyle;
   for (let i = 0; i < TITLE.length; i++) {
     const ch = TITLE[i];
-    const glyph = FONT[ch];
+    const glyph = GLYPHS[ch];
     if (!glyph) continue;
     const gx = startX + i * (LETTER_W + LETTER_GAP);
     for (let row = 0; row < 7; row++) {
@@ -154,7 +145,7 @@ function drawTitleShimmer(
   ctx.globalCompositeOperation = 'lighter';
   for (let i = 0; i < TITLE.length; i++) {
     const ch = TITLE[i];
-    const glyph = FONT[ch];
+    const glyph = GLYPHS[ch];
     if (!glyph) continue;
     const gx = startX + i * (LETTER_W + LETTER_GAP);
     for (let row = 0; row < 7; row++) {

@@ -128,18 +128,6 @@ export function draw(
   ctx.textBaseline = 'top';
   ctx.fillText(`score ${state.score}`, 8, 8);
 
-  if (state.dead) {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = TEXT;
-    ctx.font = '20px ui-monospace, monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('game over', w / 2, h / 2 - 12);
-    ctx.font = '12px ui-monospace, monospace';
-    ctx.fillText('press space to restart', w / 2, h / 2 + 14);
-    ctx.textAlign = 'start';
-  }
 }
 
 export function drawBeatBorder(
