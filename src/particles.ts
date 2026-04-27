@@ -11,17 +11,12 @@ type Particle = {
 
 const particles: Particle[] = [];
 
-const COLORS = [
-  '#fbbf24',
-  '#f59e0b',
-  '#ef4444',
-  '#f472b6',
-  '#fde047',
-  '#a7f3d0',
-  '#60a5fa',
-];
-
-export function spawnFireworks(cx: number, cy: number, scale = 1): void {
+export function spawnFireworks(
+  cx: number,
+  cy: number,
+  colors: readonly string[],
+  scale = 1,
+): void {
   const count = 40;
   for (let i = 0; i < count; i++) {
     const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.3;
@@ -34,7 +29,7 @@ export function spawnFireworks(cx: number, cy: number, scale = 1): void {
       vy: Math.sin(angle) * speed,
       life,
       maxLife: life,
-      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      color: colors[Math.floor(Math.random() * colors.length)],
       size: (2 + Math.random() * 3) * scale,
     });
   }
@@ -55,11 +50,14 @@ export function spawnFireworks(cx: number, cy: number, scale = 1): void {
   }
 }
 
-export function spawnLevelUpFireworks(boardPx: number): void {
+export function spawnLevelUpFireworks(
+  boardPx: number,
+  colors: readonly string[],
+): void {
   const cx = boardPx / 2;
   const cy = boardPx / 2;
   // Big central blast, then satellite bursts in a ring around it.
-  spawnFireworks(cx, cy, 1.6);
+  spawnFireworks(cx, cy, colors, 1.6);
   const ring = 6;
   const radius = boardPx * 0.28;
   for (let i = 0; i < ring; i++) {
@@ -67,7 +65,10 @@ export function spawnLevelUpFireworks(boardPx: number): void {
     const sx = cx + Math.cos(angle) * radius;
     const sy = cy + Math.sin(angle) * radius;
     const delay = 90 + i * 70 + Math.random() * 60;
-    setTimeout(() => spawnFireworks(sx, sy, 0.9 + Math.random() * 0.4), delay);
+    setTimeout(
+      () => spawnFireworks(sx, sy, colors, 0.9 + Math.random() * 0.4),
+      delay,
+    );
   }
 }
 

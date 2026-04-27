@@ -315,8 +315,6 @@ export function drawBeatBorder(
 const LEVEL_UP_DURATION_MS = 1700;
 const LEVEL_UP_FLASH_MS = 320;
 const BANNER_PIXEL = 10;
-const BANNER_COLOR = '252, 211, 77';
-const BANNER_GLOW = '255, 247, 200';
 
 export function drawLevelUpOverlay(
   ctx: CanvasRenderingContext2D,
@@ -334,12 +332,23 @@ export function drawLevelUpOverlay(
   const showWobble = level >= 3;
   const baseScale = level >= 4 ? 1 : level === 3 ? 0.85 : 0.7;
 
+  const palIdx = Math.max(0, Math.min(LEVELS - 1, level));
+  const accent = LEVEL_PALETTE[palIdx].accent;
+  const [accH, accS, accL] = rgbToHsl(accent);
+  const glow = hslToRgb(
+    accH,
+    Math.max(0.15, accS * 0.4),
+    Math.min(0.92, accL + 0.15),
+  );
+  const coreStr = rgbTriplet(accent);
+  const glowStr = rgbTriplet(glow);
+
   // Soft full-screen flash that quickly decays.
   if (showFlash && elapsed < LEVEL_UP_FLASH_MS) {
     const f = 1 - elapsed / LEVEL_UP_FLASH_MS;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = `rgba(167, 243, 208, ${f * 0.35})`;
+    ctx.fillStyle = `rgba(${glowStr}, ${f * 0.35})`;
     ctx.fillRect(0, 0, w, h);
     ctx.restore();
   }
@@ -379,16 +388,16 @@ export function drawLevelUpOverlay(
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const blur of [22, 12, 5]) {
-      ctx.shadowColor = `rgba(${BANNER_GLOW}, 1)`;
+      ctx.shadowColor = `rgba(${glowStr}, 1)`;
       ctx.shadowBlur = blur;
-      ctx.fillStyle = `rgba(${BANNER_GLOW}, ${0.18 * alpha})`;
+      ctx.fillStyle = `rgba(${glowStr}, ${0.18 * alpha})`;
       drawText(ctx, text, 0, 0, px);
     }
     ctx.restore();
   }
 
   // Sharp core.
-  ctx.fillStyle = `rgba(${BANNER_COLOR}, ${alpha})`;
+  ctx.fillStyle = `rgba(${coreStr}, ${alpha})`;
   drawText(ctx, text, 0, 0, px);
 
   ctx.restore();
@@ -421,6 +430,59 @@ function easeOutCubic(t: number): number {
   return 1 - u * u * u;
 }
 
+// Per-level firework palette: hue/lightness variations around the level's accent
+// so bursts read as part of the same world rather than generic confetti.
+const LEVEL_FIREWORK_COLORS: string[][] = LEVEL_PALETTE.map(({ accent }) => {
+  const [h, s, l] = rgbToHsl(accent);
+  const variants: Array<[number, number, number]> = [
+    [h, s, l],
+    [h, Math.max(0.35, s * 0.85), Math.min(0.85, l + 0.12)],
+    [h + 24, Math.min(1, s + 0.05), l],
+    [h - 24, Math.min(1, s + 0.05), l],
+    [h, Math.min(1, s + 0.2), Math.max(0.45, l - 0.05)],
+  ];
+  return variants.map(([hh, ss, ll]) => rgbStr(hslToRgb(hh, ss, ll)));
+});
+
+export function levelFireworkColors(level: number): readonly string[] {
+  const idx = Math.max(0, Math.min(LEVELS - 1, level));
+  return LEVEL_FIREWORK_COLORS[idx];
+}
+
+function rgbToHsl([r, g, b]: Rgb): [number, number, number] {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === rn) h = (gn - bn) / d + (gn < bn ? 6 : 0);
+  else if (max === gn) h = (bn - rn) / d + 2;
+  else h = (rn - gn) / d + 4;
+  return [h * 60, s, l];
+}
+
+function hslToRgb(hDeg: number, s: number, l: number): Rgb {
+  const h = (((hDeg % 360) + 360) % 360) / 60;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h % 2) - 1));
+  let r1 = 0;
+  let g1 = 0;
+  let b1 = 0;
+  if (h < 1) [r1, g1, b1] = [c, x, 0];
+  else if (h < 2) [r1, g1, b1] = [x, c, 0];
+  else if (h < 3) [r1, g1, b1] = [0, c, x];
+  else if (h < 4) [r1, g1, b1] = [0, x, c];
+  else if (h < 5) [r1, g1, b1] = [x, 0, c];
+  else [r1, g1, b1] = [c, 0, x];
+  const m = l - c / 2;
+  return [(r1 + m) * 255, (g1 + m) * 255, (b1 + m) * 255];
+}
+
 function hexToRgb(hex: string): Rgb {
   return [
     parseInt(hex.slice(1, 3), 16),
@@ -446,6 +508,10 @@ function lerpRgb(a: Rgb, b: Rgb, t: number): Rgb {
 
 function rgbStr(rgb: Rgb): string {
   return `rgb(${Math.round(rgb[0])}, ${Math.round(rgb[1])}, ${Math.round(rgb[2])})`;
+}
+
+function rgbTriplet(rgb: Rgb): string {
+  return `${Math.round(rgb[0])}, ${Math.round(rgb[1])}, ${Math.round(rgb[2])}`;
 }
 
 function clamp255(v: number): number {

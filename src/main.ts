@@ -15,7 +15,12 @@ import {
   spawnLevelUpFireworks,
   updateParticles,
 } from './particles';
-import { draw, drawBeatBorder, drawLevelUpOverlay } from './render';
+import {
+  draw,
+  drawBeatBorder,
+  drawLevelUpOverlay,
+  levelFireworkColors,
+} from './render';
 import {
   getBeatState,
   playDeath,
@@ -331,13 +336,16 @@ function frame(now: number): void {
           spawnFireworks(
             foodX * prevCell + prevCell / 2,
             foodY * prevCell + prevCell / 2,
+            levelFireworkColors(prevLevel),
             prevCell / 24,
           );
         }
       }
       if (state.level > prevLevel) {
         playLevelUp();
-        if (state.level >= 3) spawnLevelUpFireworks(BOARD_PX);
+        if (state.level >= 3) {
+          spawnLevelUpFireworks(BOARD_PX, levelFireworkColors(state.level));
+        }
         levelUpStartedAt = now;
         levelUpLevel = state.level;
       }
