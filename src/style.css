@@ -20,16 +20,23 @@ main {
   align-items: center;
   justify-content: center;
   gap: 12px;
+  padding: 8px;
+  box-sizing: border-box;
 }
 
 canvas#game {
   background: #0e1116;
   border: 1px solid #2a313c;
   image-rendering: pixelated;
+  touch-action: none;
+  width: min(720px, calc(100vw - 16px), calc(100vh - 60px));
+  height: min(720px, calc(100vw - 16px), calc(100vh - 60px));
 }
 
 .hint {
   margin: 0;
   font-size: 12px;
   opacity: 0.6;
+  text-align: center;
+  padding: 0 8px;
 }

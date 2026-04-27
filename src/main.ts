@@ -48,8 +48,9 @@ const KEY_DIRS: Record<string, Dir> = {
 const TITLE_FADE_MS = 700;
 const DEATH_PAUSE_MS = 1400;
 
-const canvas = document.getElementById('game') as HTMLCanvasElement | null;
-if (!canvas) throw new Error('canvas#game not found');
+const canvasEl = document.getElementById('game') as HTMLCanvasElement | null;
+if (!canvasEl) throw new Error('canvas#game not found');
+const canvas: HTMLCanvasElement = canvasEl;
 const ctx2d = canvas.getContext('2d');
 if (!ctx2d) throw new Error('2d context unavailable');
 const ctx: CanvasRenderingContext2D = ctx2d;
@@ -180,6 +181,111 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 });
+
+const SWIPE_THRESHOLD_PX = 20;
+let touchPointerId: number | null = null;
+let touchAnchorX = 0;
+let touchAnchorY = 0;
+let touchSwipedThisGesture = false;
+
+function applySwipe(dir: Dir): void {
+  unlockAudio();
+
+  if (phase === 'title') {
+    startGame(dir, performance.now());
+    return;
+  }
+
+  if (phase === 'enter-initials' && editState) {
+    if (dir.y === -1) {
+      editState.initials[editState.cursor] = cycleLetter(
+        editState.initials[editState.cursor],
+        1,
+      );
+    } else if (dir.y === 1) {
+      editState.initials[editState.cursor] = cycleLetter(
+        editState.initials[editState.cursor],
+        -1,
+      );
+    } else if (dir.x === -1) {
+      editState.cursor = Math.max(0, editState.cursor - 1);
+    } else if (dir.x === 1) {
+      editState.cursor = Math.min(2, editState.cursor + 1);
+    }
+    return;
+  }
+
+  if (phase === 'leaderboard') {
+    startGame(null, performance.now());
+    return;
+  }
+
+  if (phase === 'death-pause') return;
+
+  setNextDir(state, dir);
+}
+
+function applyTap(): void {
+  unlockAudio();
+
+  if (phase === 'title') {
+    startGame(null, performance.now());
+    return;
+  }
+
+  if (phase === 'enter-initials' && editState) {
+    commitInitials();
+    return;
+  }
+
+  if (phase === 'leaderboard') {
+    startGame(null, performance.now());
+    return;
+  }
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType !== 'touch') return;
+  if (touchPointerId !== null) return;
+  touchPointerId = e.pointerId;
+  touchAnchorX = e.clientX;
+  touchAnchorY = e.clientY;
+  touchSwipedThisGesture = false;
+  canvas.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerType !== 'touch' || e.pointerId !== touchPointerId) return;
+  const dx = e.clientX - touchAnchorX;
+  const dy = e.clientY - touchAnchorY;
+  const adx = Math.abs(dx);
+  const ady = Math.abs(dy);
+  if (adx < SWIPE_THRESHOLD_PX && ady < SWIPE_THRESHOLD_PX) return;
+  const dir: Dir =
+    adx > ady
+      ? { x: dx > 0 ? 1 : -1, y: 0 }
+      : { x: 0, y: dy > 0 ? 1 : -1 };
+  applySwipe(dir);
+  touchSwipedThisGesture = true;
+  touchAnchorX = e.clientX;
+  touchAnchorY = e.clientY;
+  e.preventDefault();
+});
+
+function endTouchGesture(e: PointerEvent, fireTap: boolean): void {
+  if (e.pointerType !== 'touch' || e.pointerId !== touchPointerId) return;
+  if (fireTap && !touchSwipedThisGesture) applyTap();
+  touchPointerId = null;
+  touchSwipedThisGesture = false;
+  if (canvas.hasPointerCapture(e.pointerId)) {
+    canvas.releasePointerCapture(e.pointerId);
+  }
+  e.preventDefault();
+}
+
+canvas.addEventListener('pointerup', (e) => endTouchGesture(e, true));
+canvas.addEventListener('pointercancel', (e) => endTouchGesture(e, false));
 
 let lastTime = performance.now();
 let acc = 0;
